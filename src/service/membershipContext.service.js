@@ -1,5 +1,6 @@
 const { Company, MemberProfile, EmployeeProfile } = require('../models');
 const { COMPANY_ROLE } = require('../utils/enums');
+const { AppError } = require('../utils/AppError');
 
 /**
  * Resolves all company roles for a user (v1: admin of one company, optional member rows).
@@ -50,4 +51,40 @@ async function resolveMemberships(userId) {
   return memberships;
 }
 
-module.exports = { resolveMemberships };
+/**
+ * FR-024: deactivated members cannot authenticate. Company admins and users
+ * with at least one active member/employee profile may still sign in.
+ */
+async function assertUserCanAuthenticate(user) {
+  const userId = user._id;
+
+  const isAdmin = await Company.exists({ admin_user_id: userId });
+  if (isAdmin) {
+    return;
+  }
+
+  const [hasActiveMember, hasActiveEmployee, hasMemberProfile, hasEmployeeProfile] =
+    await Promise.all([
+      MemberProfile.exists({ user_id: userId, is_active: true }),
+      EmployeeProfile.exists({ user_id: userId, is_active: true }),
+      MemberProfile.exists({ user_id: userId }),
+      EmployeeProfile.exists({ user_id: userId }),
+    ]);
+
+  if (hasActiveMember || hasActiveEmployee) {
+    return;
+  }
+
+  if (hasMemberProfile) {
+    throw new AppError(
+      'Your member access has been deactivated. Contact your company admin.',
+      403
+    );
+  }
+
+  if (hasEmployeeProfile) {
+    throw new AppError('Your employee account has been deactivated.', 403);
+  }
+}
+
+module.exports = { resolveMemberships, assertUserCanAuthenticate };

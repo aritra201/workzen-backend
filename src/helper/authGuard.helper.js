@@ -1,6 +1,7 @@
 const { verifyAccessToken } = require('./jwt.helper');
 const { AppError } = require('../utils/AppError');
 const { User } = require('../models');
+const { assertUserCanAuthenticate } = require('../service/membershipContext.service');
 
 /**
  * Verifies the Authorization: Bearer <token> header, loads the user, and
@@ -25,6 +26,8 @@ async function requireAuth(req, res, next) {
     if (!user.is_active) {
       throw new AppError('Account is not active', 403);
     }
+
+    await assertUserCanAuthenticate(user);
 
     req.user = user;
     return next();

@@ -1,6 +1,7 @@
 const { User, Company } = require('../models');
 const { AUTH_PROVIDER } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
+const { assertUserCanAuthenticate } = require('./membershipContext.service');
 const { issueTokenPair, verifyRefreshToken, signAccessToken, signRefreshToken } = require('../helper/jwt.helper');
 const { generateRawTokenAndHash, hashToken } = require('../helper/token.helper');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../helper/email.helper');
@@ -289,6 +290,8 @@ async function resetPassword({ rawToken, newPassword }) {
  * on the user document (enabling rotation/revocation in refreshTokens()).
  */
 async function issueAndPersistTokens(user) {
+  await assertUserCanAuthenticate(user);
+
   const accessToken = signAccessToken(user);
   const refreshToken = signRefreshToken(user);
 
