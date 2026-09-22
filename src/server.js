@@ -1,6 +1,7 @@
 const createApp = require('./app');
 const connectDB = require('./config/db');
 const env = require('./config/env');
+const { startAttendanceLockJob } = require('./jobs/attendanceLock.job');
 
 async function start() {
   // Fail fast if critical secrets are missing, rather than booting into a
@@ -10,6 +11,8 @@ async function start() {
   env.required('MONGODB_URI');
 
   await connectDB();
+
+  startAttendanceLockJob();
 
   const app = createApp();
   app.listen(env.port, () => {

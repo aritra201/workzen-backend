@@ -1,0 +1,82 @@
+const attendanceService = require('../service/attendance.service');
+const { SHIFT_KEY } = require('../utils/enums');
+const { AppError } = require('../utils/AppError');
+
+const VALID_SHIFT_KEYS = new Set([SHIFT_KEY.DAY, SHIFT_KEY.NIGHT]);
+
+/** Header: `Shift-Key: day` or `Shift-Key: night` */
+function shiftKeyFromRequest(req) {
+  const raw = req.headers['shift-key'];
+  if (!raw) {
+    throw new AppError('Shift-Key header is required (day or night)', 400);
+  }
+  const shiftKey = String(raw).trim().toLowerCase();
+  if (!VALID_SHIFT_KEYS.has(shiftKey)) {
+    throw new AppError('Shift-Key must be day or night', 400);
+  }
+  return shiftKey;
+}
+
+function employeeFromRequest(req) {
+  return req.employment.employeeProfile;
+}
+
+async function getToday(req, res) {
+  const data = await attendanceService.getTodayAttendanceForEmployee(employeeFromRequest(req));
+  res.status(200).json(data);
+}
+
+async function confirmShift(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const data = await attendanceService.confirmTodayShift({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+  });
+  res.status(200).json(data);
+}
+
+async function submitShift(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const { amount, comment, geoLocation } = req.body;
+
+  const data = await attendanceService.submitTodayShift({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    amount,
+    comment,
+    geoLocation,
+  });
+  res.status(200).json(data);
+}
+
+async function updateShiftDetails(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const { amount, comment } = req.body;
+
+  const data = await attendanceService.updateTodayShiftDetails({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    amount,
+    comment,
+  });
+  res.status(200).json(data);
+}
+
+async function uploadWorkPicture(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const files = req.files?.length ? req.files : req.file ? [req.file] : [];
+  const data = await attendanceService.uploadTodayWorkPictures({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    files,
+  });
+  res.status(200).json(data);
+}
+
+module.exports = {
+  getToday,
+  confirmShift,
+  submitShift,
+  updateShiftDetails,
+  uploadWorkPicture,
+};

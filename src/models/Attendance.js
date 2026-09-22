@@ -103,6 +103,24 @@ attendanceSchema.index({ company_id: 1, date: 1 });
  * Callers that are performing a deliberate, unlock-request-authorized edit
  * must set `doc.$locals.allowLockedEdit = true` before saving.
  */
+// FR-042: confirmed regular shifts cannot be unmarked.
+attendanceSchema.pre('save', async function preventShiftUnconfirm() {
+  if (this.isNew || !this.isModified('shifts')) {
+    return;
+  }
+
+  const existing = await this.constructor.findById(this._id).select('shifts.day.marked shifts.night.marked');
+  if (!existing) {
+    return;
+  }
+
+  for (const key of ['day', 'night']) {
+    if (existing.shifts?.[key]?.marked && !this.shifts?.[key]?.marked) {
+      throw new Error('Confirmed shifts cannot be unchecked');
+    }
+  }
+});
+
 attendanceSchema.pre('save', function guardLockedEdits() {
   const isEditingShiftData = this.isModified('shifts');
   const isAlreadyLocked = !this.isNew && this.lock_attendance;

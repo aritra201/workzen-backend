@@ -77,9 +77,37 @@ function resolveCompanyTimezone({ explicitTimezone, country, currentTimezone }) 
   return DEFAULT_TIMEZONE;
 }
 
+function getCompanyDateTime(timezone) {
+  return DateTime.now().setZone(timezone || DEFAULT_TIMEZONE);
+}
+
+/** Calendar date key (yyyy-MM-dd) in the company's timezone — FR-040/047. */
+function getCompanyTodayDateKey(timezone) {
+  return getCompanyDateTime(timezone).toFormat('yyyy-MM-dd');
+}
+
+function dateKeyToUtcDate(dateKey) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function utcDateToDateKey(date) {
+  return DateTime.fromJSDate(date, { zone: 'utc' }).toFormat('yyyy-MM-dd');
+}
+
+function isCompanyLocalLockCutoffReached(timezone) {
+  const local = getCompanyDateTime(timezone);
+  return local.hour === 23 && local.minute >= 59;
+}
+
 module.exports = {
   DEFAULT_TIMEZONE,
   isValidIanaTimezone,
   timezoneForCountry,
   resolveCompanyTimezone,
+  getCompanyDateTime,
+  getCompanyTodayDateKey,
+  dateKeyToUtcDate,
+  utcDateToDateKey,
+  isCompanyLocalLockCutoffReached,
 };
