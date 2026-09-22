@@ -19,6 +19,7 @@ router.use(requireAuth, requireCompanyAdmin);
 
 router.get('/', asyncHandler(memberController.list));
 router.post('/invitations', inviteLimiter, asyncHandler(memberController.invite));
+router.post('/invitations/resend', inviteLimiter, asyncHandler(memberController.resendInvite));
 router.patch('/:memberId', asyncHandler(memberController.updateStatus));
 
 module.exports = router;

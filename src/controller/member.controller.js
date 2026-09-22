@@ -24,6 +24,24 @@ async function invite(req, res) {
   });
 }
 
+async function resendInvite(req, res) {
+  const { email } = req.body;
+  if (!email) {
+    throw new AppError('email is required', 400);
+  }
+
+  const result = await memberService.resendMemberInvitation({
+    company: req.company,
+    adminUserId: req.user._id,
+    email,
+  });
+
+  res.status(200).json({
+    message: 'Member invitation resent',
+    ...result,
+  });
+}
+
 async function updateStatus(req, res) {
   const { isActive } = req.body;
   const member = await memberService.setMemberActive({
@@ -39,5 +57,6 @@ async function updateStatus(req, res) {
 module.exports = {
   list,
   invite,
+  resendInvite,
   updateStatus,
 };

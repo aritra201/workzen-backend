@@ -31,15 +31,15 @@ async function listMembers(companyId) {
   return members.map(serializeMember);
 }
 
-/**
- * FR-021: invite a view-only member by email.
- */
-async function inviteMember({ company, adminUserId, email }) {
+function normalizeInviteEmail(email) {
   const invitedEmail = email.trim().toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(invitedEmail)) {
     throw new AppError('A valid email is required', 400);
   }
+  return invitedEmail;
+}
 
+async function assertMemberInviteAllowed(company, invitedEmail) {
   const adminUser = await User.findById(company.admin_user_id);
   if (adminUser.email === invitedEmail) {
     throw new AppError('You cannot invite yourself as a member', 400);
@@ -55,19 +55,24 @@ async function inviteMember({ company, adminUserId, email }) {
       throw new AppError('This user is already an active member of your company', 409);
     }
   }
+}
 
-  const pendingInvite = await Invitation.findOne({
-    company_id: company._id,
+async function revokeSupersededMemberInvites(companyId, invitedEmail) {
+  const openInvites = await Invitation.find({
+    company_id: companyId,
     invited_email: invitedEmail,
     invited_role: INVITATION_ROLE.MEMBER,
     status: INVITATION_STATUS.PENDING,
-    expires_at: { $gt: new Date() },
   });
 
-  if (pendingInvite) {
-    throw new AppError('An invitation is already pending for this email', 409);
+  const now = new Date();
+  for (const invite of openInvites) {
+    invite.status = invite.expires_at < now ? INVITATION_STATUS.EXPIRED : INVITATION_STATUS.REVOKED;
+    await invite.save();
   }
+}
 
+async function createAndEmailMemberInvitation({ company, adminUserId, invitedEmail, actionType }) {
   const { rawToken, tokenHash } = Invitation.generateToken();
 
   const invitation = await Invitation.create({
@@ -89,7 +94,7 @@ async function inviteMember({ company, adminUserId, email }) {
     companyId: company._id,
     actorUserId: adminUserId,
     actorRole: COMPANY_ROLE.ADMIN,
-    actionType: 'invitation.sent',
+    actionType,
     targetType: 'Invitation',
     targetId: invitation._id,
     metadata: { invited_email: invitedEmail, invited_role: INVITATION_ROLE.MEMBER },
@@ -100,6 +105,75 @@ async function inviteMember({ company, adminUserId, email }) {
     email: invitedEmail,
     expiresAt: invitation.expires_at,
   };
+}
+
+/**
+ * FR-021: invite a view-only member by email.
+ */
+async function inviteMember({ company, adminUserId, email }) {
+  const invitedEmail = normalizeInviteEmail(email);
+  await assertMemberInviteAllowed(company, invitedEmail);
+
+  const pendingInvite = await Invitation.findOne({
+    company_id: company._id,
+    invited_email: invitedEmail,
+    invited_role: INVITATION_ROLE.MEMBER,
+    status: INVITATION_STATUS.PENDING,
+    expires_at: { $gt: new Date() },
+  });
+
+  if (pendingInvite) {
+    throw new AppError(
+      'An invitation is already pending for this email — use resend invitation instead',
+      409
+    );
+  }
+
+  return createAndEmailMemberInvitation({
+    company,
+    adminUserId,
+    invitedEmail,
+    actionType: 'invitation.sent',
+  });
+}
+
+/**
+ * Resend when invite expired, was never accepted, or member is inactive.
+ */
+async function resendMemberInvitation({ company, adminUserId, email }) {
+  const invitedEmail = normalizeInviteEmail(email);
+  await assertMemberInviteAllowed(company, invitedEmail);
+
+  const hadPriorInvite = await Invitation.exists({
+    company_id: company._id,
+    invited_email: invitedEmail,
+    invited_role: INVITATION_ROLE.MEMBER,
+  });
+
+  const existingUser = await User.findOne({ email: invitedEmail });
+  const inactiveMemberForEmail =
+    existingUser &&
+    (await MemberProfile.findOne({
+      company_id: company._id,
+      user_id: existingUser._id,
+      is_active: false,
+    }));
+
+  if (!hadPriorInvite && !inactiveMemberForEmail) {
+    throw new AppError(
+      'No prior invitation found for this email — send a new invitation instead',
+      404
+    );
+  }
+
+  await revokeSupersededMemberInvites(company._id, invitedEmail);
+
+  return createAndEmailMemberInvitation({
+    company,
+    adminUserId,
+    invitedEmail,
+    actionType: 'invitation.resent',
+  });
 }
 
 /**
@@ -145,5 +219,6 @@ async function setMemberActive({ company, adminUserId, memberId, isActive }) {
 module.exports = {
   listMembers,
   inviteMember,
+  resendMemberInvitation,
   setMemberActive,
 };
