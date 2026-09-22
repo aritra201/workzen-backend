@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth.routes');
 const companyRoutes = require('./routes/company.routes');
 const memberRoutes = require('./routes/member.routes');
 const invitationRoutes = require('./routes/invitation.routes');
+const employeeRoutes = require('./routes/employee.routes');
 const errorHandler = require('./helper/errorHandler.helper');
 const env = require('./config/env');
 
@@ -24,8 +25,8 @@ function createApp() {
   app.use('/api/company', companyRoutes);
   app.use('/api/members', memberRoutes);
   app.use('/api/invitations', invitationRoutes);
+  app.use('/api/employees', employeeRoutes);
   // Future modules mount here, e.g.:
-  // app.use('/api/employees', employeeRoutes);
   // app.use('/api/attendance', attendanceRoutes);
 
   app.use((req, res) => res.status(404).json({ message: 'Not found' }));

@@ -3,7 +3,7 @@ const { INVITATION_ROLE, INVITATION_STATUS } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { hashToken } = require('../helper/token.helper');
 
-async function loadPendingMemberInvitation(rawToken) {
+async function loadPendingInvitation(rawToken, invitedRole) {
   if (!rawToken) {
     throw new AppError('token is required', 400);
   }
@@ -12,7 +12,7 @@ async function loadPendingMemberInvitation(rawToken) {
 
   const invitation = await Invitation.findOne({
     token_hash: tokenHash,
-    invited_role: INVITATION_ROLE.MEMBER,
+    invited_role: invitedRole,
   });
 
   if (!invitation) {
@@ -42,4 +42,16 @@ async function loadPendingMemberInvitation(rawToken) {
   return invitation;
 }
 
-module.exports = { loadPendingMemberInvitation };
+async function loadPendingMemberInvitation(rawToken) {
+  return loadPendingInvitation(rawToken, INVITATION_ROLE.MEMBER);
+}
+
+async function loadPendingEmployeeInvitation(rawToken) {
+  return loadPendingInvitation(rawToken, INVITATION_ROLE.EMPLOYEE);
+}
+
+module.exports = {
+  loadPendingInvitation,
+  loadPendingMemberInvitation,
+  loadPendingEmployeeInvitation,
+};

@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const memberInvitationController = require('../controller/memberInvitation.controller');
+const employeeInvitationController = require('../controller/employeeInvitation.controller');
 const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -19,6 +20,18 @@ router.post(
   '/members/accept/google',
   acceptLimiter,
   asyncHandler(memberInvitationController.acceptGoogle)
+);
+
+router.get('/employees/preview', asyncHandler(employeeInvitationController.preview));
+router.post(
+  '/employees/accept',
+  acceptLimiter,
+  asyncHandler(employeeInvitationController.acceptManual)
+);
+router.post(
+  '/employees/accept/google',
+  acceptLimiter,
+  asyncHandler(employeeInvitationController.acceptGoogle)
 );
 
 module.exports = router;

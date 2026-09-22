@@ -3,14 +3,13 @@ const { COMPANY_ROLE } = require('../utils/enums');
 
 const employeeProfileSchema = new mongoose.Schema(
   {
+    // Linked when the employee accepts the invite (FR-031). Null while pending (FR-030).
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-      // v1: exactly one company per employee. Kept as its own field (rather than
-      // merged into User) so this can become a non-unique, multi-row relationship
-      // later without restructuring — see DRD §B.4.
+      // v1: exactly one company per employee when linked — see DRD §B.4.
       unique: true,
+      sparse: true,
     },
     company_id: {
       type: mongoose.Schema.Types.ObjectId,
@@ -58,5 +57,11 @@ const employeeProfileSchema = new mongoose.Schema(
 // the same person's email could in principle be invited by a different
 // company once multi-company support lands).
 employeeProfileSchema.index({ company_id: 1, employee_email: 1 }, { unique: true });
+
+employeeProfileSchema.pre('validate', function requireUserWhenActive() {
+  if (this.is_active && !this.user_id) {
+    throw new Error('user_id is required when employee is_active is true');
+  }
+});
 
 module.exports = mongoose.model('EmployeeProfile', employeeProfileSchema);

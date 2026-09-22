@@ -54,6 +54,20 @@ function sendMemberInvitationEmail({ to, rawToken, companyName }) {
   });
 }
 
+function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }) {
+  const link = `${env.clientUrl}/accept-employee-invite?token=${rawToken}`;
+  return sendMail({
+    to,
+    subject: `You're invited to join ${companyName} on WorkZen`,
+    html: `
+      <p>Hello ${employeeName},</p>
+      <p>You have been invited to join <strong>${companyName}</strong> on WorkZen as an employee.</p>
+      <p><a href="${link}">Accept invitation and set up your account</a></p>
+      <p>This link expires in 72 hours. If you did not expect this email, you can ignore it.</p>
+    `,
+  });
+}
+
 function sendPasswordResetEmail({ to, rawToken }) {
   const link = `${env.clientUrl}/reset-password?token=${rawToken}`;
   return sendMail({
@@ -72,4 +86,5 @@ module.exports = {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendMemberInvitationEmail,
+  sendEmployeeInvitationEmail,
 };

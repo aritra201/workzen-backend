@@ -1,10 +1,14 @@
 const { AppError } = require('../utils/AppError');
 const { COMPANY_ROLE } = require('../utils/enums');
-const { Company, MemberProfile } = require('../models');
+const { Company, MemberProfile, EmployeeProfile } = require('../models');
 const {
   findActiveMemberProfileByUserId,
   INACTIVE_MEMBER_MESSAGE,
 } = require('./memberAccess.helper');
+const {
+  INACTIVE_EMPLOYEE_MESSAGE,
+  findActiveEmployeeProfileByUserId,
+} = require('./employeeAccess.helper');
 
 /**
  * FR-023: members have view-only access — block write/admin actions company-wide.
@@ -39,6 +43,15 @@ async function forbidActiveMemberWriteAccess(req, res, next) {
       throw new AppError(INACTIVE_MEMBER_MESSAGE, 403);
     }
 
+    const inactiveEmployment = await EmployeeProfile.findOne({
+      user_id: req.user._id,
+      is_active: false,
+    });
+
+    if (inactiveEmployment) {
+      throw new AppError(INACTIVE_EMPLOYEE_MESSAGE, 403);
+    }
+
     return next();
   } catch (err) {
     return next(err);
@@ -70,4 +83,26 @@ async function requireActiveMember(req, res, next) {
   }
 }
 
-module.exports = { forbidActiveMemberWriteAccess, requireActiveMember };
+/**
+ * Employee-only routes — enforces EmployeeProfile.is_active === true and user_id set.
+ */
+async function requireActiveEmployee(req, res, next) {
+  try {
+    if (!req.user) {
+      throw new AppError('Authentication required', 401);
+    }
+
+    const employeeProfile = await findActiveEmployeeProfileByUserId(req.user._id, true);
+
+    req.employment = {
+      role: COMPANY_ROLE.EMPLOYEE,
+      company: employeeProfile.company_id,
+      employeeProfile,
+    };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = { forbidActiveMemberWriteAccess, requireActiveMember, requireActiveEmployee };

@@ -2,6 +2,7 @@ const { Company, MemberProfile, EmployeeProfile } = require('../models');
 const { COMPANY_ROLE } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { INACTIVE_MEMBER_MESSAGE } = require('../helper/memberAccess.helper');
+const { INACTIVE_EMPLOYEE_MESSAGE } = require('../helper/employeeAccess.helper');
 
 /**
  * Resolves all company roles for a user (v1: admin of one company, optional member rows).
@@ -81,7 +82,7 @@ async function assertUserCanAuthenticate(user) {
   }
 
   if (hasEmployeeProfile) {
-    throw new AppError('Your employee account has been deactivated.', 403);
+    throw new AppError(INACTIVE_EMPLOYEE_MESSAGE, 403);
   }
 }
 
