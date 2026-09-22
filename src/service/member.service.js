@@ -7,17 +7,36 @@ const {
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
 const { sendMemberInvitationEmail } = require('../helper/email.helper');
+const { uploadImageBuffer } = require('../helper/cloudinary.helper');
+const {
+  assertMemberProfileIsActive,
+  findActiveMemberProfileByUserId,
+  findActiveMemberProfileById,
+} = require('../helper/memberAccess.helper');
 
 function serializeMember(member) {
   const user = member.user_id;
+  const company = member.company_id;
+
   return {
     id: member._id,
     userId: user._id,
     email: user.email,
+    name: member.member_name ?? null,
+    profilePicture: member.member_profile_picture ?? null,
+    companyId: company._id,
+    companyName: company.company_name ?? null,
     role: COMPANY_ROLE.MEMBER,
     isActive: member.is_active,
     joinedAt: member.created_at,
   };
+}
+
+async function loadMemberProfileForUser(userId, memberProfileId) {
+  if (memberProfileId) {
+    return findActiveMemberProfileById(memberProfileId, userId, true);
+  }
+  return findActiveMemberProfileByUserId(userId, true);
 }
 
 /**
@@ -26,9 +45,103 @@ function serializeMember(member) {
 async function listMembers(companyId) {
   const members = await MemberProfile.find({ company_id: companyId })
     .populate('user_id', 'email')
+    .populate('company_id', 'company_name')
     .sort({ created_at: -1 });
 
   return members.map(serializeMember);
+}
+
+async function getMyMemberProfile({ userId, memberProfileId }) {
+  const member = await loadMemberProfileForUser(userId, memberProfileId);
+  return serializeMember(member);
+}
+
+async function updateMyMemberProfile({ userId, memberProfileId, body }) {
+  if (body.profilePicture !== undefined) {
+    throw new AppError(
+      'Use POST /api/members/me/profile-picture with multipart form-data (field: profilePicture)',
+      400
+    );
+  }
+
+  if (body.name === undefined) {
+    throw new AppError('name is required', 400);
+  }
+
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) {
+    throw new AppError('name cannot be empty', 400);
+  }
+
+  const member = await loadMemberProfileForUser(userId, memberProfileId);
+  assertMemberProfileIsActive(member);
+
+  const beforeName = member.member_name ?? null;
+
+  member.member_name = name;
+  await member.save();
+
+  if (beforeName !== name) {
+    await writeActivityLog({
+      companyId: member.company_id._id,
+      actorUserId: userId,
+      actorRole: COMPANY_ROLE.MEMBER,
+      actionType: 'member.profile_updated',
+      targetType: 'MemberProfile',
+      targetId: member._id,
+      beforeValue: { member_name: beforeName },
+      afterValue: { member_name: name },
+    });
+  }
+
+  return serializeMember(
+    await MemberProfile.findById(member._id)
+      .populate('user_id', 'email')
+      .populate('company_id', 'company_name')
+  );
+}
+
+async function uploadMyMemberProfilePicture({ userId, memberProfileId, file }) {
+  if (!file || !file.buffer) {
+    throw new AppError('profilePicture file is required', 400);
+  }
+
+  const member = await loadMemberProfileForUser(userId, memberProfileId);
+  assertMemberProfileIsActive(member);
+
+  const beforePicture = member.member_profile_picture ?? null;
+
+  const folder = `workzen/members/${member._id.toString()}/profile`;
+  const publicId = 'member_profile_picture';
+
+  let uploadResult;
+  try {
+    uploadResult = await uploadImageBuffer(file.buffer, { folder, publicId });
+  } catch (err) {
+    throw new AppError('Failed to upload image — try again later', 502);
+  }
+
+  member.member_profile_picture = uploadResult.secure_url;
+  await member.save();
+
+  if (beforePicture !== member.member_profile_picture) {
+    await writeActivityLog({
+      companyId: member.company_id._id,
+      actorUserId: userId,
+      actorRole: COMPANY_ROLE.MEMBER,
+      actionType: 'member.profile_updated',
+      targetType: 'MemberProfile',
+      targetId: member._id,
+      beforeValue: { member_profile_picture: beforePicture },
+      afterValue: { member_profile_picture: member.member_profile_picture },
+    });
+  }
+
+  return serializeMember(
+    await MemberProfile.findById(member._id)
+      .populate('user_id', 'email')
+      .populate('company_id', 'company_name')
+  );
 }
 
 function normalizeInviteEmail(email) {
@@ -187,7 +300,9 @@ async function setMemberActive({ company, adminUserId, memberId, isActive }) {
   const member = await MemberProfile.findOne({
     _id: memberId,
     company_id: company._id,
-  }).populate('user_id', 'email');
+  })
+    .populate('user_id', 'email')
+    .populate('company_id', 'company_name');
 
   if (!member) {
     throw new AppError('Member not found', 404);
@@ -218,6 +333,9 @@ async function setMemberActive({ company, adminUserId, memberId, isActive }) {
 
 module.exports = {
   listMembers,
+  getMyMemberProfile,
+  updateMyMemberProfile,
+  uploadMyMemberProfilePicture,
   inviteMember,
   resendMemberInvitation,
   setMemberActive,

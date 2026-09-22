@@ -1,6 +1,34 @@
 const memberService = require('../service/member.service');
 const { AppError } = require('../utils/AppError');
 
+function memberContextFromRequest(req) {
+  return {
+    userId: req.user._id,
+    memberProfileId: req.membership?.memberProfile?._id,
+  };
+}
+
+async function getMyProfile(req, res) {
+  const profile = await memberService.getMyMemberProfile(memberContextFromRequest(req));
+  res.status(200).json(profile);
+}
+
+async function updateMyProfile(req, res) {
+  const profile = await memberService.updateMyMemberProfile({
+    ...memberContextFromRequest(req),
+    body: req.body,
+  });
+  res.status(200).json(profile);
+}
+
+async function uploadMyProfilePicture(req, res) {
+  const profile = await memberService.uploadMyMemberProfilePicture({
+    ...memberContextFromRequest(req),
+    file: req.file,
+  });
+  res.status(200).json(profile);
+}
+
 async function list(req, res) {
   const members = await memberService.listMembers(req.company._id);
   res.status(200).json({ members });
@@ -55,6 +83,9 @@ async function updateStatus(req, res) {
 }
 
 module.exports = {
+  getMyProfile,
+  updateMyProfile,
+  uploadMyProfilePicture,
   list,
   invite,
   resendInvite,

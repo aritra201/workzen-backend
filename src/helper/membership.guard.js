@@ -1,6 +1,10 @@
 const { AppError } = require('../utils/AppError');
 const { COMPANY_ROLE } = require('../utils/enums');
 const { Company, MemberProfile } = require('../models');
+const {
+  findActiveMemberProfileByUserId,
+  INACTIVE_MEMBER_MESSAGE,
+} = require('./memberAccess.helper');
 
 /**
  * FR-023: members have view-only access — block write/admin actions company-wide.
@@ -26,6 +30,15 @@ async function forbidActiveMemberWriteAccess(req, res, next) {
       throw new AppError('Members have view-only access and cannot perform this action', 403);
     }
 
+    const inactiveMembership = await MemberProfile.findOne({
+      user_id: req.user._id,
+      is_active: false,
+    });
+
+    if (inactiveMembership) {
+      throw new AppError(INACTIVE_MEMBER_MESSAGE, 403);
+    }
+
     return next();
   } catch (err) {
     return next(err);
@@ -35,20 +48,16 @@ async function forbidActiveMemberWriteAccess(req, res, next) {
 /**
  * Loads company context for an active member (read routes in later modules).
  */
+/**
+ * All member-only routes must use this — enforces MemberProfile.is_active === true.
+ */
 async function requireActiveMember(req, res, next) {
   try {
     if (!req.user) {
       throw new AppError('Authentication required', 401);
     }
 
-    const member = await MemberProfile.findOne({
-      user_id: req.user._id,
-      is_active: true,
-    }).populate('company_id');
-
-    if (!member) {
-      throw new AppError('Active member access required', 403);
-    }
+    const member = await findActiveMemberProfileByUserId(req.user._id, true);
 
     req.membership = {
       role: COMPANY_ROLE.MEMBER,

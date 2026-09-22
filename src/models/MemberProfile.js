@@ -26,6 +26,14 @@ const memberProfileSchema = new mongoose.Schema(
       required: true,
       default: false,
     },
+    member_name: {
+      type: String,
+      trim: true,
+    },
+    member_profile_picture: {
+      type: String,
+      trim: true,
+    },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );

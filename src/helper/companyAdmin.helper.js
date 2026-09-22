@@ -1,5 +1,6 @@
 const { AppError } = require('../utils/AppError');
-const { Company } = require('../models');
+const { Company, MemberProfile } = require('../models');
+const { INACTIVE_MEMBER_MESSAGE } = require('./memberAccess.helper');
 
 /**
  * Requires an authenticated user who owns the company (v1 admin).
@@ -13,6 +14,13 @@ async function requireCompanyAdmin(req, res, next) {
 
     const company = await Company.findOne({ admin_user_id: req.user._id });
     if (!company) {
+      const deactivatedMember = await MemberProfile.exists({
+        user_id: req.user._id,
+        is_active: false,
+      });
+      if (deactivatedMember) {
+        throw new AppError(INACTIVE_MEMBER_MESSAGE, 403);
+      }
       throw new AppError('Company admin access required', 403);
     }
 

@@ -39,4 +39,36 @@ function handleCompanyProfilePictureUpload(req, res, next) {
   });
 }
 
-module.exports = { handleCompanyProfilePictureUpload };
+const memberProfilePictureUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: env.upload.maxImageBytes },
+  fileFilter(req, file, cb) {
+    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      cb(new AppError('profilePicture must be a JPEG, PNG, WebP, or GIF image', 400));
+      return;
+    }
+    cb(null, true);
+  },
+}).single('profilePicture');
+
+function handleMemberProfilePictureUpload(req, res, next) {
+  memberProfilePictureUpload(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return next(
+          new AppError(
+            `Image must be ${Math.round(env.upload.maxImageBytes / (1024 * 1024))} MB or smaller`,
+            400
+          )
+        );
+      }
+      return next(new AppError(err.message, 400));
+    }
+    if (err) {
+      return next(err);
+    }
+    return next();
+  });
+}
+
+module.exports = { handleCompanyProfilePictureUpload, handleMemberProfilePictureUpload };
