@@ -9,6 +9,8 @@ const router = express.Router();
 
 const employeeAttendance = [requireAuth, requireActiveEmployee];
 
+router.get('/me', employeeAttendance, asyncHandler(attendanceController.listMyAttendance));
+
 router.get('/me/today', employeeAttendance, asyncHandler(attendanceController.getToday));
 
 router.post('/me/today/shifts/confirm', employeeAttendance, asyncHandler(attendanceController.confirmShift));

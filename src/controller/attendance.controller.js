@@ -35,6 +35,17 @@ async function getToday(req, res) {
   res.status(200).json(data);
 }
 
+async function listMyAttendance(req, res) {
+  const { startDate, endDate, page, limit } = req.query;
+  const data = await attendanceService.listAttendanceForEmployee(employeeFromRequest(req), {
+    startDate,
+    endDate,
+    page,
+    limit,
+  });
+  res.status(200).json(data);
+}
+
 async function confirmShift(req, res) {
   const shiftKey = shiftKeyFromRequest(req);
   const data = await attendanceService.confirmTodayShift({
@@ -118,6 +129,7 @@ async function replaceWorkPictures(req, res) {
 
 module.exports = {
   getToday,
+  listMyAttendance,
   confirmShift,
   submitShift,
   updateShiftDetails,

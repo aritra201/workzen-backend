@@ -5,6 +5,7 @@ const { writeActivityLog } = require('../helper/activityLog.helper');
 const { uploadImageBuffer, deleteImagesByUrls } = require('../helper/cloudinary.helper');
 const { parseWorkPictureUrlList } = require('../helper/workPictureList.helper');
 const { MAX_WORK_PICTURES } = require('../helper/attendanceUpload.helper');
+const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
 const {
   getCompanyTodayDateKey,
   dateKeyToUtcDate,
@@ -15,6 +16,9 @@ const {
 const REGULAR_SHIFTS = new Set([SHIFT_KEY.DAY, SHIFT_KEY.NIGHT]);
 const EXTRA_SHIFTS = new Set([SHIFT_KEY.EXTRA_DAY, SHIFT_KEY.EXTRA_NIGHT]);
 const ALL_EMPLOYEE_SHIFTS = new Set([...REGULAR_SHIFTS, ...EXTRA_SHIFTS]);
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 100;
+const DEFAULT_LIST_DAYS = 30;
 
 function assertEmployeeShiftKey(shiftKey) {
   if (!ALL_EMPLOYEE_SHIFTS.has(shiftKey)) {
@@ -230,6 +234,54 @@ async function getTodayAttendanceForEmployee(employeeProfile) {
     company
   );
   return serializeAttendance(attendance, todayKey, timezone);
+}
+
+/**
+ * Paginated attendance history for the authenticated employee (read-only; does not create rows).
+ */
+async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, page, limit }) {
+  const company = await loadEmployeeCompanyContext(employeeProfile);
+  const timezone = company.timezone || 'Asia/Kolkata';
+  const todayKey = getCompanyTodayDateKey(timezone);
+
+  const { startDate: startDateKey, endDate: endDateKey, dateRange } = resolveDateRangeFilter({
+    startDate,
+    endDate,
+    timezone,
+    todayKey,
+    defaultWindowDays: DEFAULT_LIST_DAYS,
+  });
+
+  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+  const limitNum = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
+  );
+  const skip = (pageNum - 1) * limitNum;
+
+  const filter = {
+    employee_id: employeeProfile._id,
+    company_id: company._id,
+    date: dateRange,
+  };
+
+  const [total, records] = await Promise.all([
+    Attendance.countDocuments(filter),
+    Attendance.find(filter).sort({ date: -1 }).skip(skip).limit(limitNum),
+  ]);
+
+  return {
+    timezone,
+    startDate: startDateKey,
+    endDate: endDateKey,
+    page: pageNum,
+    limit: limitNum,
+    total,
+    totalPages: total === 0 ? 0 : Math.ceil(total / limitNum),
+    items: records.map((attendance) =>
+      serializeAttendanceRecord(attendance, utcDateToDateKey(attendance.date), timezone)
+    ),
+  };
 }
 
 /**
@@ -672,6 +724,7 @@ async function assertTodayOnlyDateKey(requestedDateKey, timezone) {
 
 module.exports = {
   getTodayAttendanceForEmployee,
+  listAttendanceForEmployee,
   getOrCreateAttendanceForEmployeeDate,
   serializeAttendanceRecord,
   confirmTodayShift,
