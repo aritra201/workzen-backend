@@ -15,8 +15,8 @@ router.post('/me/today/shifts/confirm', employeeAttendance, asyncHandler(attenda
 
 router.post(
   '/me/today/shifts/work-pictures',
-  employeeAttendance,
   handleWorkPictureUpload,
+  employeeAttendance,
   asyncHandler(attendanceController.uploadWorkPicture)
 );
 

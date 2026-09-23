@@ -12,10 +12,26 @@ const {
 } = require('../utils/timezone.helper');
 
 const REGULAR_SHIFTS = new Set([SHIFT_KEY.DAY, SHIFT_KEY.NIGHT]);
+const EXTRA_SHIFTS = new Set([SHIFT_KEY.EXTRA_DAY, SHIFT_KEY.EXTRA_NIGHT]);
+const ALL_EMPLOYEE_SHIFTS = new Set([...REGULAR_SHIFTS, ...EXTRA_SHIFTS]);
 
-function assertRegularShiftKey(shiftKey) {
-  if (!REGULAR_SHIFTS.has(shiftKey)) {
-    throw new AppError('Only day and night shifts can be managed here', 400);
+function assertEmployeeShiftKey(shiftKey) {
+  if (!ALL_EMPLOYEE_SHIFTS.has(shiftKey)) {
+    throw new AppError('Shift-Key must be day, night, extra_day, or extra_night', 400);
+  }
+}
+
+function isExtraShiftKey(shiftKey) {
+  return EXTRA_SHIFTS.has(shiftKey);
+}
+
+/** FR-053: employee cannot fill undeclared extra shifts. */
+function assertExtraShiftDeclared(shift, shiftKey) {
+  if (!shift?.declared) {
+    throw new AppError(
+      `Extra shift "${shiftKey}" is not available — ask your admin to declare it first`,
+      403
+    );
   }
 }
 
@@ -36,10 +52,15 @@ async function loadEmployeeCompanyContext(employeeProfile) {
   return company;
 }
 
-async function getOrCreateTodayAttendance(employeeProfile, company) {
+async function getOrCreateAttendanceForEmployeeDate({
+  company,
+  employeeProfile,
+  dateKey,
+  actorUserId,
+  actorRole = COMPANY_ROLE.EMPLOYEE,
+}) {
   const timezone = company.timezone;
-  const todayKey = getCompanyTodayDateKey(timezone);
-  const storedDate = dateKeyToUtcDate(todayKey);
+  const storedDate = dateKeyToUtcDate(dateKey);
 
   let attendance = await Attendance.findOne({
     employee_id: employeeProfile._id,
@@ -56,28 +77,46 @@ async function getOrCreateTodayAttendance(employeeProfile, company) {
 
     await writeActivityLog({
       companyId: company._id,
-      actorUserId: employeeProfile.user_id,
-      actorRole: COMPANY_ROLE.EMPLOYEE,
+      actorUserId: actorUserId || employeeProfile.user_id,
+      actorRole,
       actionType: 'attendance.created',
       targetType: 'Attendance',
       targetId: attendance._id,
-      metadata: { date: todayKey },
+      metadata: { date: dateKey },
     });
   }
 
-  return { attendance, todayKey, timezone };
+  return { attendance, dateKey, timezone };
+}
+
+async function getOrCreateTodayAttendance(employeeProfile, company) {
+  const todayKey = getCompanyTodayDateKey(company.timezone);
+  return getOrCreateAttendanceForEmployeeDate({
+    company,
+    employeeProfile,
+    dateKey: todayKey,
+    actorUserId: employeeProfile.user_id,
+    actorRole: COMPANY_ROLE.EMPLOYEE,
+  });
 }
 
 function snapshotShiftMarks(attendance) {
   return {
     day: Boolean(attendance.shifts?.day?.marked),
     night: Boolean(attendance.shifts?.night?.marked),
+    extra_day: Boolean(attendance.shifts?.extra_day?.marked),
+    extra_night: Boolean(attendance.shifts?.extra_night?.marked),
   };
 }
 
 /** FR-042: once marked true, employee cannot revert to false. */
 function assertShiftMarksNotReverted(attendance, beforeMarks) {
-  for (const key of [SHIFT_KEY.DAY, SHIFT_KEY.NIGHT]) {
+  for (const key of [
+    SHIFT_KEY.DAY,
+    SHIFT_KEY.NIGHT,
+    SHIFT_KEY.EXTRA_DAY,
+    SHIFT_KEY.EXTRA_NIGHT,
+  ]) {
     if (beforeMarks[key] && !attendance.shifts[key].marked) {
       throw new AppError('Confirmed shifts cannot be unchecked', 400);
     }
@@ -89,7 +128,7 @@ async function saveAttendanceWithShiftGuards(attendance, beforeMarks) {
   await attendance.save();
 }
 
-function serializeShift(shift) {
+function serializeRegularShift(shift) {
   if (!shift || !shift.marked) {
     return null;
   }
@@ -103,19 +142,84 @@ function serializeShift(shift) {
   };
 }
 
-function serializeAttendance(attendance, todayKey, timezone) {
+/** FR-053: omit extra shift data until admin has declared it. */
+function serializeExtraShift(shift) {
+  if (!shift?.declared) {
+    return null;
+  }
+  return {
+    declared: true,
+    declaredAt: shift.declared_at ?? null,
+    marked: Boolean(shift.marked),
+    amount: shift.amount ?? null,
+    comment: shift.comment ?? null,
+    workPictures: shift.work_picture ?? [],
+    geoLocation: shift.geo_location ?? null,
+    status: shift.status,
+  };
+}
+
+function serializeAttendanceRecord(attendance, dateKey, timezone) {
   return {
     id: attendance._id,
-    date: todayKey,
+    date: dateKey,
     timezone,
     lockAttendance: attendance.lock_attendance,
     shifts: {
-      day: serializeShift(attendance.shifts.day),
-      night: serializeShift(attendance.shifts.night),
+      day: serializeRegularShift(attendance.shifts.day),
+      night: serializeRegularShift(attendance.shifts.night),
+      extraDay: serializeExtraShift(attendance.shifts.extra_day),
+      extraNight: serializeExtraShift(attendance.shifts.extra_night),
     },
     createdAt: attendance.created_at,
     updatedAt: attendance.updated_at,
   };
+}
+
+function serializeAttendance(attendance, todayKey, timezone) {
+  return serializeAttendanceRecord(attendance, todayKey, timezone);
+}
+
+function assertShiftReadyForUpload(shift, shiftKey) {
+  if (isExtraShiftKey(shiftKey)) {
+    assertExtraShiftDeclared(shift, shiftKey);
+    if (!shift.marked) {
+      throw new AppError('Confirm this extra shift before uploading work pictures', 400);
+    }
+    return;
+  }
+  if (!shift.marked) {
+    throw new AppError('Confirm this shift before uploading work pictures', 400);
+  }
+}
+
+function assertShiftReadyForSubmit(shift, shiftKey) {
+  if (isExtraShiftKey(shiftKey)) {
+    assertExtraShiftDeclared(shift, shiftKey);
+    if (!shift.marked) {
+      throw new AppError('Confirm this extra shift before submitting details', 400);
+    }
+    return;
+  }
+  if (!shift.marked) {
+    throw new AppError('Confirm this shift before submitting details', 400);
+  }
+}
+
+function assertShiftReadyForEdit(shift, shiftKey) {
+  if (isExtraShiftKey(shiftKey)) {
+    assertExtraShiftDeclared(shift, shiftKey);
+    if (!shift.marked || shift.amount == null || !shift.comment) {
+      throw new AppError('Submit extra shift details before editing', 400);
+    }
+    return;
+  }
+  if (!shift.marked) {
+    throw new AppError('Shift is not confirmed for today', 400);
+  }
+  if (shift.amount == null || !shift.comment) {
+    throw new AppError('Submit shift details before editing', 400);
+  }
 }
 
 async function getTodayAttendanceForEmployee(employeeProfile) {
@@ -128,10 +232,11 @@ async function getTodayAttendanceForEmployee(employeeProfile) {
 }
 
 /**
- * FR-041/042: confirm a regular shift (irreversible).
+ * FR-041/042: confirm day/night shift (irreversible).
+ * FR-052/053: confirm extra_day/extra_night only when admin has declared it.
  */
 async function confirmTodayShift({ employeeProfile, shiftKey }) {
-  assertRegularShiftKey(shiftKey);
+  assertEmployeeShiftKey(shiftKey);
   const company = await loadEmployeeCompanyContext(employeeProfile);
   const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
     employeeProfile,
@@ -142,6 +247,11 @@ async function confirmTodayShift({ employeeProfile, shiftKey }) {
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
+
+  if (isExtraShiftKey(shiftKey)) {
+    assertExtraShiftDeclared(shift, shiftKey);
+  }
+
   if (shift.marked) {
     return serializeAttendance(attendance, todayKey, timezone);
   }
@@ -154,11 +264,15 @@ async function confirmTodayShift({ employeeProfile, shiftKey }) {
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
+  const actionType = isExtraShiftKey(shiftKey)
+    ? 'extra_shift.confirmed'
+    : 'attendance.shift_confirmed';
+
   await writeActivityLog({
     companyId: company._id,
     actorUserId: employeeProfile.user_id,
     actorRole: COMPANY_ROLE.EMPLOYEE,
-    actionType: 'attendance.shift_confirmed',
+    actionType,
     targetType: 'Attendance',
     targetId: attendance._id,
     metadata: { date: todayKey, shift_key: shiftKey },
@@ -198,10 +312,11 @@ function validateComment(comment) {
 }
 
 /**
- * FR-043: initial submit for a confirmed shift (requires >=1 work picture already uploaded).
+ * FR-043: initial submit for a confirmed shift (amount, comment, geo). Work pictures
+ * may be uploaded before or after submit via the work-pictures endpoint.
  */
 async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, geoLocation }) {
-  assertRegularShiftKey(shiftKey);
+  assertEmployeeShiftKey(shiftKey);
   const company = await loadEmployeeCompanyContext(employeeProfile);
   const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
     employeeProfile,
@@ -212,13 +327,7 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
-  if (!shift.marked) {
-    throw new AppError('Confirm this shift before submitting details', 400);
-  }
-
-  if (!shift.work_picture || shift.work_picture.length < 1) {
-    throw new AppError('Upload at least one work picture before submitting', 400);
-  }
+  assertShiftReadyForSubmit(shift, shiftKey);
 
   const parsedAmount = validateAmount(amount);
   const parsedComment = validateComment(comment);
@@ -234,11 +343,19 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
+  const actionType = isExtraShiftKey(shiftKey)
+    ? hadSubmission
+      ? 'extra_shift.resubmitted'
+      : 'extra_shift.submitted'
+    : hadSubmission
+      ? 'attendance.shift_resubmitted'
+      : 'attendance.shift_submitted';
+
   await writeActivityLog({
     companyId: company._id,
     actorUserId: employeeProfile.user_id,
     actorRole: COMPANY_ROLE.EMPLOYEE,
-    actionType: hadSubmission ? 'attendance.shift_resubmitted' : 'attendance.shift_submitted',
+    actionType,
     targetType: 'Attendance',
     targetId: attendance._id,
     metadata: { date: todayKey, shift_key: shiftKey },
@@ -251,7 +368,7 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
  * FR-044: edit amount and/or comment before lock.
  */
 async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comment }) {
-  assertRegularShiftKey(shiftKey);
+  assertEmployeeShiftKey(shiftKey);
 
   if (amount === undefined && comment === undefined) {
     throw new AppError('Provide amount and/or comment to update', 400);
@@ -267,12 +384,7 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
-  if (!shift.marked) {
-    throw new AppError('Shift is not confirmed for today', 400);
-  }
-  if (shift.amount == null || !shift.comment) {
-    throw new AppError('Submit shift details before editing', 400);
-  }
+  assertShiftReadyForEdit(shift, shiftKey);
 
   const before = { amount: shift.amount, comment: shift.comment };
   const after = { ...before };
@@ -293,11 +405,15 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
+  const actionType = isExtraShiftKey(shiftKey)
+    ? 'extra_shift.amount_edited'
+    : 'attendance.amount_edited';
+
   await writeActivityLog({
     companyId: company._id,
     actorUserId: employeeProfile.user_id,
     actorRole: COMPANY_ROLE.EMPLOYEE,
-    actionType: 'attendance.amount_edited',
+    actionType,
     targetType: 'Attendance',
     targetId: attendance._id,
     beforeValue: before,
@@ -309,11 +425,14 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
 }
 
 async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
-  assertRegularShiftKey(shiftKey);
+  assertEmployeeShiftKey(shiftKey);
 
   const fileList = Array.isArray(files) ? files.filter((f) => f?.buffer) : [];
   if (fileList.length === 0) {
-    throw new AppError('At least one workPicture file is required', 400);
+    throw new AppError(
+      'At least one workPicture file is required (multipart/form-data, field name workPicture)',
+      400
+    );
   }
 
   const company = await loadEmployeeCompanyContext(employeeProfile);
@@ -326,9 +445,7 @@ async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
-  if (!shift.marked) {
-    throw new AppError('Confirm this shift before uploading work pictures', 400);
-  }
+  assertShiftReadyForUpload(shift, shiftKey);
 
   if (!shift.work_picture) {
     shift.work_picture = [];
@@ -375,9 +492,13 @@ async function assertTodayOnlyDateKey(requestedDateKey, timezone) {
 
 module.exports = {
   getTodayAttendanceForEmployee,
+  getOrCreateAttendanceForEmployeeDate,
+  serializeAttendanceRecord,
   confirmTodayShift,
   submitTodayShift,
   updateTodayShiftDetails,
   uploadTodayWorkPictures,
   assertTodayOnlyDateKey,
+  assertEmployeeShiftKey,
+  isExtraShiftKey,
 };
