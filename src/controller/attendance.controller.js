@@ -82,10 +82,46 @@ async function uploadWorkPicture(req, res) {
   res.status(200).json(data);
 }
 
+async function deleteWorkPictures(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const urls = req.body?.urls ?? req.body?.workPictureUrls;
+
+  const data = await attendanceService.deleteTodayWorkPictures({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    urls,
+  });
+
+  res.status(200).json({
+    message: 'Work picture(s) removed',
+    attendance: data,
+  });
+}
+
+async function replaceWorkPictures(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const removeUrls = req.body?.removeUrls ?? req.body?.urls;
+  const files = collectWorkPictureFiles(req);
+
+  const data = await attendanceService.replaceTodayWorkPictures({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    removeUrls,
+    files,
+  });
+
+  res.status(200).json({
+    message: 'Work picture(s) updated',
+    attendance: data,
+  });
+}
+
 module.exports = {
   getToday,
   confirmShift,
   submitShift,
   updateShiftDetails,
   uploadWorkPicture,
+  deleteWorkPictures,
+  replaceWorkPictures,
 };

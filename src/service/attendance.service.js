@@ -2,7 +2,8 @@ const { Attendance, EmployeeProfile, Company } = require('../models');
 const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
-const { uploadImageBuffer } = require('../helper/cloudinary.helper');
+const { uploadImageBuffer, deleteImagesByUrls } = require('../helper/cloudinary.helper');
+const { parseWorkPictureUrlList } = require('../helper/workPictureList.helper');
 const { MAX_WORK_PICTURES } = require('../helper/attendanceUpload.helper');
 const {
   getCompanyTodayDateKey,
@@ -424,6 +425,185 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
   return serializeAttendance(attendance, todayKey, timezone);
 }
 
+function getShiftWorkPictureUrls(shift) {
+  if (!Array.isArray(shift?.work_picture)) {
+    return [];
+  }
+  return shift.work_picture.filter(Boolean);
+}
+
+function assertUrlsBelongToShift(shift, urls, shiftKey) {
+  const current = new Set(getShiftWorkPictureUrls(shift));
+  const unknown = urls.filter((url) => !current.has(url));
+  if (unknown.length > 0) {
+    throw new AppError(
+      `One or more URLs are not attached to this shift (${shiftKey})`,
+      400
+    );
+  }
+}
+
+async function removeWorkPicturesFromShift({
+  company,
+  employeeProfile,
+  attendance,
+  todayKey,
+  timezone,
+  shiftKey,
+  urlsToRemove,
+  actionType,
+}) {
+  if (!urlsToRemove.length) {
+    throw new AppError('Provide at least one work picture URL to remove', 400);
+  }
+
+  assertNotLocked(attendance, timezone);
+
+  const beforeMarks = snapshotShiftMarks(attendance);
+  const shift = attendance.shifts[shiftKey];
+  assertShiftReadyForUpload(shift, shiftKey);
+
+  assertUrlsBelongToShift(shift, urlsToRemove, shiftKey);
+
+  await deleteImagesByUrls(urlsToRemove);
+
+  const removeSet = new Set(urlsToRemove);
+  shift.work_picture = getShiftWorkPictureUrls(shift).filter((url) => !removeSet.has(url));
+
+  attendance.markModified(`shifts.${shiftKey}`);
+  await saveAttendanceWithShiftGuards(attendance, beforeMarks);
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: employeeProfile.user_id,
+    actorRole: COMPANY_ROLE.EMPLOYEE,
+    actionType,
+    targetType: 'Attendance',
+    targetId: attendance._id,
+    metadata: {
+      date: todayKey,
+      shift_key: shiftKey,
+      removed_urls: urlsToRemove,
+    },
+  });
+
+  return serializeAttendance(attendance, todayKey, timezone);
+}
+
+/**
+ * DELETE work pictures by URL (removes from Cloudinary and attendance).
+ */
+async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls }) {
+  assertEmployeeShiftKey(shiftKey);
+  const urlsToRemove = parseWorkPictureUrlList(urls, 'urls');
+
+  const company = await loadEmployeeCompanyContext(employeeProfile);
+  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+    employeeProfile,
+    company
+  );
+
+  const actionType = isExtraShiftKey(shiftKey)
+    ? 'extra_shift.work_pictures_removed'
+    : 'attendance.work_pictures_removed';
+
+  return removeWorkPicturesFromShift({
+    company,
+    employeeProfile,
+    attendance,
+    todayKey,
+    timezone,
+    shiftKey,
+    urlsToRemove,
+    actionType,
+  });
+}
+
+/**
+ * Replace flow: remove listed URLs (Cloudinary + DB), then upload new files.
+ */
+async function replaceTodayWorkPictures({ employeeProfile, shiftKey, removeUrls, files }) {
+  assertEmployeeShiftKey(shiftKey);
+
+  const urlsToRemove = parseWorkPictureUrlList(removeUrls, 'removeUrls');
+  const fileList = Array.isArray(files) ? files.filter((f) => f?.buffer) : [];
+
+  if (urlsToRemove.length === 0 && fileList.length === 0) {
+    throw new AppError('Provide removeUrls and/or new workPicture files to replace', 400);
+  }
+
+  const company = await loadEmployeeCompanyContext(employeeProfile);
+  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+    employeeProfile,
+    company
+  );
+
+  assertNotLocked(attendance, timezone);
+
+  const beforeMarks = snapshotShiftMarks(attendance);
+  const shift = attendance.shifts[shiftKey];
+  assertShiftReadyForUpload(shift, shiftKey);
+
+  if (!shift.work_picture) {
+    shift.work_picture = [];
+  }
+
+  if (urlsToRemove.length > 0) {
+    assertUrlsBelongToShift(shift, urlsToRemove, shiftKey);
+    await deleteImagesByUrls(urlsToRemove);
+    const removeSet = new Set(urlsToRemove);
+    shift.work_picture = getShiftWorkPictureUrls(shift).filter((url) => !removeSet.has(url));
+  }
+
+  if (fileList.length > 0) {
+    const remaining = MAX_WORK_PICTURES - shift.work_picture.length;
+    if (remaining <= 0) {
+      throw new AppError(`Maximum ${MAX_WORK_PICTURES} work pictures per shift`, 400);
+    }
+    if (fileList.length > remaining) {
+      throw new AppError(
+        `You can upload ${remaining} more picture(s) for this shift (max ${MAX_WORK_PICTURES} total)`,
+        400
+      );
+    }
+
+    const folder = `workzen/attendance/${attendance._id.toString()}/${shiftKey}`;
+    for (const file of fileList) {
+      const publicId = `pic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        const uploadResult = await uploadImageBuffer(file.buffer, { folder, publicId });
+        shift.work_picture.push(uploadResult.secure_url);
+      } catch (err) {
+        throw new AppError('Failed to upload work picture — try again later', 502);
+      }
+    }
+  }
+
+  attendance.markModified(`shifts.${shiftKey}`);
+  await saveAttendanceWithShiftGuards(attendance, beforeMarks);
+
+  const actionType = isExtraShiftKey(shiftKey)
+    ? 'extra_shift.work_pictures_replaced'
+    : 'attendance.work_pictures_replaced';
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: employeeProfile.user_id,
+    actorRole: COMPANY_ROLE.EMPLOYEE,
+    actionType,
+    targetType: 'Attendance',
+    targetId: attendance._id,
+    metadata: {
+      date: todayKey,
+      shift_key: shiftKey,
+      removed_urls: urlsToRemove,
+      added_count: fileList.length,
+    },
+  });
+
+  return serializeAttendance(attendance, todayKey, timezone);
+}
+
 async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
   assertEmployeeShiftKey(shiftKey);
 
@@ -498,6 +678,8 @@ module.exports = {
   submitTodayShift,
   updateTodayShiftDetails,
   uploadTodayWorkPictures,
+  deleteTodayWorkPictures,
+  replaceTodayWorkPictures,
   assertTodayOnlyDateKey,
   assertEmployeeShiftKey,
   isExtraShiftKey,

@@ -20,6 +20,19 @@ router.post(
   asyncHandler(attendanceController.uploadWorkPicture)
 );
 
+router.delete(
+  '/me/today/shifts/work-pictures',
+  employeeAttendance,
+  asyncHandler(attendanceController.deleteWorkPictures)
+);
+
+router.put(
+  '/me/today/shifts/work-pictures/replace',
+  handleWorkPictureUpload,
+  employeeAttendance,
+  asyncHandler(attendanceController.replaceWorkPictures)
+);
+
 router.put('/me/today/shifts/submit', employeeAttendance, asyncHandler(attendanceController.submitShift));
 
 router.patch('/me/today/shifts', employeeAttendance, asyncHandler(attendanceController.updateShiftDetails));
