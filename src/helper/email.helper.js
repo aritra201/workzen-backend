@@ -81,10 +81,71 @@ function sendPasswordResetEmail({ to, rawToken }) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function sendUnlockRequestSubmittedEmail({
+  to,
+  adminName,
+  employeeName,
+  employeeEmail,
+  dateKey,
+  companyName,
+}) {
+  return sendMail({
+    to,
+    subject: `New unlock request from ${employeeName} for ${dateKey}`,
+    html: `
+      <p>Hello ${escapeHtml(adminName || 'Admin')},</p>
+      <p><strong>${escapeHtml(employeeName)}</strong> (${escapeHtml(employeeEmail)}) submitted an unlock request for attendance on <strong>${escapeHtml(dateKey)}</strong> at ${escapeHtml(companyName || 'your company')}.</p>
+      <p>Open WorkZen to approve or deny this request.</p>
+    `,
+  });
+}
+
+function sendUnlockRequestApprovedEmail({ to, employeeName, dateKey, decisionNote, expiresAt }) {
+  const noteBlock = decisionNote
+    ? `<p><strong>Admin note:</strong> ${escapeHtml(decisionNote)}</p>`
+    : '';
+  return sendMail({
+    to,
+    subject: `Unlock request approved for ${dateKey}`,
+    html: `
+      <p>Hello ${escapeHtml(employeeName)},</p>
+      <p>Your unlock request for <strong>${escapeHtml(dateKey)}</strong> was approved. You can now mark attendance for that date.</p>
+      <p>This window expires at ${escapeHtml(new Date(expiresAt).toISOString())}.</p>
+      ${noteBlock}
+    `,
+  });
+}
+
+function sendUnlockRequestDeniedEmail({ to, employeeName, dateKey, decisionNote }) {
+  const noteBlock = decisionNote
+    ? `<p><strong>Admin response:</strong> ${escapeHtml(decisionNote)}</p>`
+    : '<p>No additional note was provided.</p>';
+  return sendMail({
+    to,
+    subject: `Unlock request denied for ${dateKey}`,
+    html: `
+      <p>Hello ${escapeHtml(employeeName)},</p>
+      <p>Your unlock request for <strong>${escapeHtml(dateKey)}</strong> was denied. That date remains blocked for direct attendance entry.</p>
+      ${noteBlock}
+    `,
+  });
+}
+
 module.exports = {
   sendMail,
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendMemberInvitationEmail,
   sendEmployeeInvitationEmail,
+  sendUnlockRequestSubmittedEmail,
+  sendUnlockRequestApprovedEmail,
+  sendUnlockRequestDeniedEmail,
 };

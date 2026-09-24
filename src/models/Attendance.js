@@ -87,6 +87,9 @@ const attendanceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'UnlockRequest',
     },
+    unlock_expires_at: {
+      type: Date,
+    },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );

@@ -50,5 +50,8 @@ module.exports = {
     passwordResetMinutes: 60,
   },
 
+  // Planning §4.5: approved unlock stays editable for this many hours, then re-locks.
+  unlockGraceHours: Number(process.env.UNLOCK_GRACE_HOURS) || 24,
+
   required, // exported so server.js can assert secrets exist before boot
 };

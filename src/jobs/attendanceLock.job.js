@@ -20,6 +20,11 @@ async function lockAttendanceForCompanyOnDate(companyId, dateKey) {
     company_id: companyId,
     date: storedDate,
     lock_attendance: false,
+    $or: [
+      { unlock_expires_at: { $exists: false } },
+      { unlock_expires_at: null },
+      { unlock_expires_at: { $lte: new Date() } },
+    ],
   });
 
   for (const record of records) {
@@ -58,6 +63,11 @@ async function runAttendanceLockSweep() {
       company_id: company._id,
       lock_attendance: false,
       date: { $lt: todayUtc },
+      $or: [
+        { unlock_expires_at: { $exists: false } },
+        { unlock_expires_at: null },
+        { unlock_expires_at: { $lte: new Date() } },
+      ],
     });
 
     for (const record of stale) {

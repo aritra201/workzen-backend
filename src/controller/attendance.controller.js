@@ -30,8 +30,20 @@ function employeeFromRequest(req) {
   return req.employment.employeeProfile;
 }
 
+/** Optional header: `Attendance-Date: yyyy-MM-dd` — required for unlocked past dates. */
+function attendanceDateFromRequest(req) {
+  const raw = req.headers['attendance-date'] || req.headers['x-attendance-date'];
+  if (!raw) {
+    return undefined;
+  }
+  return String(raw).trim();
+}
+
 async function getToday(req, res) {
-  const data = await attendanceService.getTodayAttendanceForEmployee(employeeFromRequest(req));
+  const data = await attendanceService.getTodayAttendanceForEmployee(
+    employeeFromRequest(req),
+    attendanceDateFromRequest(req)
+  );
   res.status(200).json(data);
 }
 
@@ -51,6 +63,7 @@ async function confirmShift(req, res) {
   const data = await attendanceService.confirmTodayShift({
     employeeProfile: employeeFromRequest(req),
     shiftKey,
+    dateKey: attendanceDateFromRequest(req),
   });
   res.status(200).json(data);
 }
@@ -65,6 +78,7 @@ async function submitShift(req, res) {
     amount,
     comment,
     geoLocation,
+    dateKey: attendanceDateFromRequest(req),
   });
   res.status(200).json(data);
 }
@@ -78,6 +92,7 @@ async function updateShiftDetails(req, res) {
     shiftKey,
     amount,
     comment,
+    dateKey: attendanceDateFromRequest(req),
   });
   res.status(200).json(data);
 }
@@ -89,6 +104,7 @@ async function uploadWorkPicture(req, res) {
     employeeProfile: employeeFromRequest(req),
     shiftKey,
     files,
+    dateKey: attendanceDateFromRequest(req),
   });
   res.status(200).json(data);
 }
@@ -101,6 +117,7 @@ async function deleteWorkPictures(req, res) {
     employeeProfile: employeeFromRequest(req),
     shiftKey,
     urls,
+    dateKey: attendanceDateFromRequest(req),
   });
 
   res.status(200).json({
@@ -119,6 +136,7 @@ async function replaceWorkPictures(req, res) {
     shiftKey,
     removeUrls,
     files,
+    dateKey: attendanceDateFromRequest(req),
   });
 
   res.status(200).json({

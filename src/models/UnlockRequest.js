@@ -17,9 +17,13 @@ const unlockRequestSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    attendance_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Attendance',
+      required: true,
+    },
     reason: {
       type: String,
-      required: true,
       trim: true,
     },
     status: {
@@ -39,6 +43,10 @@ const unlockRequestSchema = new mongoose.Schema(
     decided_at: {
       type: Date,
     },
+    // Set on approval — employee may edit that date until this instant (planning §4.5).
+    unlock_expires_at: {
+      type: Date,
+    },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: false }, versionKey: false }
 );
@@ -53,5 +61,12 @@ unlockRequestSchema.index(
   }
 );
 unlockRequestSchema.index({ company_id: 1, status: 1 });
+unlockRequestSchema.index(
+  { attendance_id: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: UNLOCK_REQUEST_STATUS.PENDING },
+  }
+);
 
 module.exports = mongoose.model('UnlockRequest', unlockRequestSchema);

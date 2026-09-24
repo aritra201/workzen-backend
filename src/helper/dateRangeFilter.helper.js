@@ -17,6 +17,14 @@ function parseDateKeyInput(value, fieldName) {
   return value.trim();
 }
 
+function parseRequiredDateKey(value, fieldName = 'date') {
+  const dateKey = parseDateKeyInput(value, fieldName);
+  if (!dateKey) {
+    throw new AppError(`${fieldName} is required in yyyy-MM-dd format`, 400);
+  }
+  return dateKey;
+}
+
 function resolveDateRangeFilter({
   startDate,
   endDate,
@@ -59,5 +67,6 @@ function resolveDateRangeFilter({
 
 module.exports = {
   parseDateKeyInput,
+  parseRequiredDateKey,
   resolveDateRangeFilter,
 };

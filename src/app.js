@@ -10,6 +10,7 @@ const invitationRoutes = require('./routes/invitation.routes');
 const employeeRoutes = require('./routes/employee.routes');
 const attendanceRoutes = require('./routes/attendance.routes');
 const extraShiftRoutes = require('./routes/extraShift.routes');
+const unlockRequestRoutes = require('./routes/unlockRequest.routes');
 const errorHandler = require('./helper/errorHandler.helper');
 const env = require('./config/env');
 
@@ -30,6 +31,7 @@ function createApp() {
   app.use('/api/employees', employeeRoutes);
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/extra-shifts', extraShiftRoutes);
+  app.use('/api/unlock-requests', unlockRequestRoutes);
   // Future modules mount here, e.g.:
 
   app.use((req, res) => res.status(404).json({ message: 'Not found' }));

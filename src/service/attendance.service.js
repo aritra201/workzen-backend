@@ -1,11 +1,12 @@
-const { Attendance, EmployeeProfile, Company } = require('../models');
-const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE } = require('../utils/enums');
+﻿const { Attendance, Company, UnlockRequest } = require('../models');
+const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE, UNLOCK_REQUEST_STATUS } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
 const { uploadImageBuffer, deleteImagesByUrls } = require('../helper/cloudinary.helper');
 const { parseWorkPictureUrlList } = require('../helper/workPictureList.helper');
 const { MAX_WORK_PICTURES } = require('../helper/attendanceUpload.helper');
-const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
+const { resolveDateRangeFilter, parseRequiredDateKey } = require('../helper/dateRangeFilter.helper');
+const { isUnlockWindowActive } = require('../helper/unlockWindow.helper');
 const {
   getCompanyTodayDateKey,
   dateKeyToUtcDate,
@@ -40,13 +41,129 @@ function assertExtraShiftDeclared(shift, shiftKey) {
   }
 }
 
-function assertNotLocked(attendance, timezone) {
+const PAST_DATE_BLOCKED_MESSAGE =
+  'Past dates cannot be marked directly — submit an unlock request for this date';
+
+async function findActiveApprovedUnlock({ employeeId, companyId, dateKey }) {
+  const request = await UnlockRequest.findOne({
+    employee_id: employeeId,
+    company_id: companyId,
+    requested_date: dateKeyToUtcDate(dateKey),
+    status: UNLOCK_REQUEST_STATUS.APPROVED,
+  }).sort({ decided_at: -1 });
+
+  if (!request || !isUnlockWindowActive(request.unlock_expires_at)) {
+    return null;
+  }
+  return request;
+}
+
+function canEmployeeEditAttendance({ attendance, timezone, dateKey, todayKey }) {
+  if (isUnlockWindowActive(attendance?.unlock_expires_at)) {
+    return true;
+  }
+  if (dateKey !== todayKey) {
+    return false;
+  }
+  if (attendance?.lock_attendance) {
+    return false;
+  }
+  if (isCompanyLocalLockCutoffReached(timezone)) {
+    return false;
+  }
+  return true;
+}
+
+function assertEmployeeCanEditAttendance({ attendance, timezone, dateKey, todayKey }) {
+  if (isUnlockWindowActive(attendance?.unlock_expires_at)) {
+    return;
+  }
+  if (dateKey !== todayKey) {
+    throw new AppError(PAST_DATE_BLOCKED_MESSAGE, 403);
+  }
   if (attendance.lock_attendance) {
     throw new AppError('Attendance is locked for this date — submit an unlock request to edit', 403);
   }
   if (isCompanyLocalLockCutoffReached(timezone)) {
     throw new AppError("Today's attendance cutoff (11:59 PM) has passed", 403);
   }
+}
+
+async function loadEmployeeAttendanceContext(employeeProfile, requestedDateKey, { writable } = {}) {
+  const company = await loadEmployeeCompanyContext(employeeProfile);
+  const timezone = company.timezone;
+  const todayKey = getCompanyTodayDateKey(timezone);
+  const dateKey = requestedDateKey
+    ? parseRequiredDateKey(requestedDateKey, 'Attendance-Date')
+    : todayKey;
+
+  if (dateKey > todayKey) {
+    throw new AppError('Cannot access attendance for a future date', 400);
+  }
+
+  if (dateKey === todayKey) {
+    const { attendance } = await getOrCreateTodayAttendance(employeeProfile, company);
+    if (writable) {
+      assertEmployeeCanEditAttendance({ attendance, timezone, dateKey, todayKey });
+    }
+    return { attendance, dateKey, timezone, company, todayKey };
+  }
+
+  const unlock = await findActiveApprovedUnlock({
+    employeeId: employeeProfile._id,
+    companyId: company._id,
+    dateKey,
+  });
+
+  let attendance = await Attendance.findOne({
+    employee_id: employeeProfile._id,
+    date: dateKeyToUtcDate(dateKey),
+  });
+
+  if (writable) {
+    if (!unlock) {
+      throw new AppError(PAST_DATE_BLOCKED_MESSAGE, 403);
+    }
+    if (!attendance) {
+      const created = await getOrCreateAttendanceForEmployeeDate({
+        company,
+        employeeProfile,
+        dateKey,
+        actorUserId: employeeProfile.user_id,
+        actorRole: COMPANY_ROLE.EMPLOYEE,
+      });
+      attendance = created.attendance;
+    }
+    attendance.lock_attendance = false;
+    attendance.unlocked_via_request_id = unlock._id;
+    attendance.unlock_expires_at = unlock.unlock_expires_at;
+    attendance.$locals.allowLockedEdit = true;
+    assertEmployeeCanEditAttendance({ attendance, timezone, dateKey, todayKey });
+    return { attendance, dateKey, timezone, company, todayKey };
+  }
+
+  if (!attendance && !unlock) {
+    throw new AppError(
+      'No attendance record for this date — submit an unlock request to create one',
+      404
+    );
+  }
+  if (!attendance && unlock) {
+    const created = await getOrCreateAttendanceForEmployeeDate({
+      company,
+      employeeProfile,
+      dateKey,
+      actorUserId: employeeProfile.user_id,
+      actorRole: COMPANY_ROLE.EMPLOYEE,
+    });
+    attendance = created.attendance;
+    attendance.lock_attendance = false;
+    attendance.unlocked_via_request_id = unlock._id;
+    attendance.unlock_expires_at = unlock.unlock_expires_at;
+    await attendance.save();
+  }
+
+  return { attendance, dateKey, timezone, company, todayKey };
 }
 
 async function loadEmployeeCompanyContext(employeeProfile) {
@@ -165,11 +282,20 @@ function serializeExtraShift(shift) {
 }
 
 function serializeAttendanceRecord(attendance, dateKey, timezone) {
+  const todayKey = getCompanyTodayDateKey(timezone);
   return {
     id: attendance._id,
     date: dateKey,
     timezone,
     lockAttendance: attendance.lock_attendance,
+    unlockedViaRequestId: attendance.unlocked_via_request_id || null,
+    unlockExpiresAt: attendance.unlock_expires_at || null,
+    canEdit: canEmployeeEditAttendance({
+      attendance,
+      timezone,
+      dateKey,
+      todayKey,
+    }),
     shifts: {
       day: serializeRegularShift(attendance.shifts.day),
       night: serializeRegularShift(attendance.shifts.night),
@@ -227,13 +353,13 @@ function assertShiftReadyForEdit(shift, shiftKey) {
   }
 }
 
-async function getTodayAttendanceForEmployee(employeeProfile) {
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+async function getTodayAttendanceForEmployee(employeeProfile, requestedDateKey) {
+  const { attendance, dateKey, timezone } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: false }
   );
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 /**
@@ -288,15 +414,13 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
  * FR-041/042: confirm day/night shift (irreversible).
  * FR-052/053: confirm extra_day/extra_night only when admin has declared it.
  */
-async function confirmTodayShift({ employeeProfile, shiftKey }) {
+async function confirmTodayShift({ employeeProfile, shiftKey, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -306,7 +430,7 @@ async function confirmTodayShift({ employeeProfile, shiftKey }) {
   }
 
   if (shift.marked) {
-    return serializeAttendance(attendance, todayKey, timezone);
+    return serializeAttendance(attendance, dateKey, timezone);
   }
 
   shift.marked = true;
@@ -328,10 +452,10 @@ async function confirmTodayShift({ employeeProfile, shiftKey }) {
     actionType,
     targetType: 'Attendance',
     targetId: attendance._id,
-    metadata: { date: todayKey, shift_key: shiftKey },
+    metadata: { date: dateKey, shift_key: shiftKey },
   });
 
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 function validateGeoLocation(geoLocation) {
@@ -368,15 +492,13 @@ function validateComment(comment) {
  * FR-043: initial submit for a confirmed shift (amount, comment, geo). Work pictures
  * may be uploaded before or after submit via the work-pictures endpoint.
  */
-async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, geoLocation }) {
+async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, geoLocation, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -411,29 +533,27 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
     actionType,
     targetType: 'Attendance',
     targetId: attendance._id,
-    metadata: { date: todayKey, shift_key: shiftKey },
+    metadata: { date: dateKey, shift_key: shiftKey },
   });
 
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 /**
  * FR-044: edit amount and/or comment before lock.
  */
-async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comment }) {
+async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comment, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
 
   if (amount === undefined && comment === undefined) {
     throw new AppError('Provide amount and/or comment to update', 400);
   }
 
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -452,7 +572,7 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
   }
 
   if (before.amount === after.amount && before.comment === after.comment) {
-    return serializeAttendance(attendance, todayKey, timezone);
+    return serializeAttendance(attendance, dateKey, timezone);
   }
 
   attendance.markModified(`shifts.${shiftKey}`);
@@ -471,10 +591,10 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
     targetId: attendance._id,
     beforeValue: before,
     afterValue: after,
-    metadata: { date: todayKey, shift_key: shiftKey },
+    metadata: { date: dateKey, shift_key: shiftKey },
   });
 
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 function getShiftWorkPictureUrls(shift) {
@@ -499,7 +619,7 @@ async function removeWorkPicturesFromShift({
   company,
   employeeProfile,
   attendance,
-  todayKey,
+  dateKey,
   timezone,
   shiftKey,
   urlsToRemove,
@@ -508,8 +628,6 @@ async function removeWorkPicturesFromShift({
   if (!urlsToRemove.length) {
     throw new AppError('Provide at least one work picture URL to remove', 400);
   }
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -533,26 +651,26 @@ async function removeWorkPicturesFromShift({
     targetType: 'Attendance',
     targetId: attendance._id,
     metadata: {
-      date: todayKey,
+      date: dateKey,
       shift_key: shiftKey,
       removed_urls: urlsToRemove,
     },
   });
 
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 /**
  * DELETE work pictures by URL (removes from Cloudinary and attendance).
  */
-async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls }) {
+async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
   const urlsToRemove = parseWorkPictureUrlList(urls, 'urls');
 
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
 
   const actionType = isExtraShiftKey(shiftKey)
@@ -563,7 +681,7 @@ async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls }) {
     company,
     employeeProfile,
     attendance,
-    todayKey,
+    dateKey,
     timezone,
     shiftKey,
     urlsToRemove,
@@ -574,7 +692,13 @@ async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls }) {
 /**
  * Replace flow: remove listed URLs (Cloudinary + DB), then upload new files.
  */
-async function replaceTodayWorkPictures({ employeeProfile, shiftKey, removeUrls, files }) {
+async function replaceTodayWorkPictures({
+  employeeProfile,
+  shiftKey,
+  removeUrls,
+  files,
+  dateKey: requestedDateKey,
+}) {
   assertEmployeeShiftKey(shiftKey);
 
   const urlsToRemove = parseWorkPictureUrlList(removeUrls, 'removeUrls');
@@ -584,13 +708,11 @@ async function replaceTodayWorkPictures({ employeeProfile, shiftKey, removeUrls,
     throw new AppError('Provide removeUrls and/or new workPicture files to replace', 400);
   }
 
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -646,17 +768,17 @@ async function replaceTodayWorkPictures({ employeeProfile, shiftKey, removeUrls,
     targetType: 'Attendance',
     targetId: attendance._id,
     metadata: {
-      date: todayKey,
+      date: dateKey,
       shift_key: shiftKey,
       removed_urls: urlsToRemove,
       added_count: fileList.length,
     },
   });
 
-  return serializeAttendance(attendance, todayKey, timezone);
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
-async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
+async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
 
   const fileList = Array.isArray(files) ? files.filter((f) => f?.buffer) : [];
@@ -667,13 +789,11 @@ async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
     );
   }
 
-  const company = await loadEmployeeCompanyContext(employeeProfile);
-  const { attendance, todayKey, timezone } = await getOrCreateTodayAttendance(
+  const { attendance, dateKey, timezone } = await loadEmployeeAttendanceContext(
     employeeProfile,
-    company
+    requestedDateKey,
+    { writable: true }
   );
-
-  assertNotLocked(attendance, timezone);
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
@@ -709,17 +829,7 @@ async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files }) {
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
-  return serializeAttendance(attendance, todayKey, timezone);
-}
-
-/**
- * FR-047: reject explicit date access — only today supported in v1 employee API.
- */
-async function assertTodayOnlyDateKey(requestedDateKey, timezone) {
-  const todayKey = getCompanyTodayDateKey(timezone);
-  if (requestedDateKey !== todayKey) {
-    throw new AppError('Attendance can only be marked for today in your company timezone', 400);
-  }
+  return serializeAttendance(attendance, dateKey, timezone);
 }
 
 module.exports = {
@@ -733,7 +843,6 @@ module.exports = {
   uploadTodayWorkPictures,
   deleteTodayWorkPictures,
   replaceTodayWorkPictures,
-  assertTodayOnlyDateKey,
   assertEmployeeShiftKey,
   isExtraShiftKey,
 };
