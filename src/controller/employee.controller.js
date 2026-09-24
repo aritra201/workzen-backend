@@ -34,6 +34,12 @@ async function list(req, res) {
   res.status(200).json({ employees });
 }
 
+async function listPresent(req, res) {
+  const { page, limit } = req.query;
+  const data = await employeeService.listPresentEmployees(req.company._id, { page, limit });
+  res.status(200).json(data);
+}
+
 async function invite(req, res) {
   const { employeeName, employeeEmail } = req.body;
   if (!employeeName || !employeeEmail) {
@@ -88,6 +94,7 @@ module.exports = {
   updateMyProfile,
   uploadMyProfilePicture,
   list,
+  listPresent,
   invite,
   resendInvite,
   updateStatus,

@@ -284,7 +284,7 @@ function serializeExtraShift(shift) {
 function serializeAttendanceRecord(attendance, dateKey, timezone) {
   const todayKey = getCompanyTodayDateKey(timezone);
   return {
-    id: attendance._id,
+    attendanceId: attendance._id,
     date: dateKey,
     timezone,
     lockAttendance: attendance.lock_attendance,
@@ -837,6 +837,8 @@ module.exports = {
   listAttendanceForEmployee,
   getOrCreateAttendanceForEmployeeDate,
   serializeAttendanceRecord,
+  serializeRegularShift,
+  serializeExtraShift,
   confirmTodayShift,
   submitTodayShift,
   updateTodayShiftDetails,

@@ -1,7 +1,9 @@
 const attendanceService = require('../service/attendance.service');
+const attendanceVerificationService = require('../service/attendanceVerification.service');
 const { collectWorkPictureFiles } = require('../helper/attendanceUpload.helper');
 const { SHIFT_KEY } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
+const { parseObjectId } = require('../utils/objectId.helper');
 
 const ALL_SHIFT_KEYS = new Set([
   SHIFT_KEY.DAY,
@@ -28,6 +30,37 @@ function shiftKeyFromRequest(req) {
 
 function employeeFromRequest(req) {
   return req.employment.employeeProfile;
+}
+
+function attendanceIdFromQuery(req) {
+  const raw = req.query.attendanceId ?? req.query.attendance_id;
+  if (!raw) {
+    throw new AppError('attendanceId query parameter is required', 400);
+  }
+  return parseObjectId(String(raw).trim(), 'attendanceId');
+}
+
+function attendanceIdFromBody(req) {
+  const raw = req.body?.attendanceId ?? req.body?.attendance_id;
+  if (!raw) {
+    throw new AppError('attendanceId is required in the request body', 400);
+  }
+  return parseObjectId(String(raw).trim(), 'attendanceId');
+}
+
+function shiftKeyFromBody(req) {
+  const raw = req.body?.shiftKey ?? req.body?.shift_key;
+  if (!raw) {
+    throw new AppError(
+      'shiftKey is required in the request body (day, night, extra_day, or extra_night)',
+      400
+    );
+  }
+  const shiftKey = String(raw).trim().toLowerCase();
+  if (!ALL_SHIFT_KEYS.has(shiftKey)) {
+    throw new AppError('shiftKey must be day, night, extra_day, or extra_night', 400);
+  }
+  return shiftKey;
 }
 
 /** Optional header: `Attendance-Date: yyyy-MM-dd` — required for unlocked past dates. */
@@ -145,13 +178,45 @@ async function replaceWorkPictures(req, res) {
   });
 }
 
+async function getMyAttendanceRecord(req, res) {
+  const rawShift = req.query.shiftKey;
+  let shiftKey;
+  if (rawShift) {
+    shiftKey = String(rawShift).trim().toLowerCase();
+    if (!ALL_SHIFT_KEYS.has(shiftKey)) {
+      throw new AppError('shiftKey must be day, night, extra_day, or extra_night', 400);
+    }
+  }
+  const data = await attendanceVerificationService.getEmployeeAttendanceDetail(
+    employeeFromRequest(req),
+    attendanceIdFromQuery(req),
+    { shiftKey }
+  );
+  res.status(200).json(data);
+}
+
+async function replyCommentThread(req, res) {
+  const attendanceId = attendanceIdFromBody(req);
+  const shiftKey = shiftKeyFromBody(req);
+  const { text } = req.body;
+  const thread = await attendanceVerificationService.addEmployeeCommentThreadReply({
+    employeeProfile: employeeFromRequest(req),
+    attendanceId,
+    shiftKey,
+    text,
+  });
+  res.status(200).json({ commentThread: thread });
+}
+
 module.exports = {
   getToday,
   listMyAttendance,
+  getMyAttendanceRecord,
   confirmShift,
   submitShift,
   updateShiftDetails,
   uploadWorkPicture,
   deleteWorkPictures,
   replaceWorkPictures,
+  replyCommentThread,
 };

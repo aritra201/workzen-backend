@@ -39,4 +39,8 @@ router.put('/me/today/shifts/submit', employeeAttendance, asyncHandler(attendanc
 
 router.patch('/me/today/shifts', employeeAttendance, asyncHandler(attendanceController.updateShiftDetails));
 
+router.get('/me/record', employeeAttendance, asyncHandler(attendanceController.getMyAttendanceRecord));
+
+router.post('/me/shifts/comment-thread/reply', employeeAttendance, asyncHandler(attendanceController.replyCommentThread));
+
 module.exports = router;
