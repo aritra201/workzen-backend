@@ -12,6 +12,7 @@ const attendanceRoutes = require('./routes/attendance.routes');
 const extraShiftRoutes = require('./routes/extraShift.routes');
 const unlockRequestRoutes = require('./routes/unlockRequest.routes');
 const attendanceVerificationRoutes = require('./routes/attendanceVerification.routes');
+const activityLogRoutes = require('./routes/activityLog.routes');
 const errorHandler = require('./helper/errorHandler.helper');
 const env = require('./config/env');
 
@@ -34,6 +35,7 @@ function createApp() {
   app.use('/api/extra-shifts', extraShiftRoutes);
   app.use('/api/unlock-requests', unlockRequestRoutes);
   app.use('/api/company-attendance', attendanceVerificationRoutes);
+  app.use('/api/activity-logs', activityLogRoutes);
 
   app.use((req, res) => res.status(404).json({ message: 'Not found' }));
   app.use(errorHandler);
