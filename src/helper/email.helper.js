@@ -28,15 +28,16 @@ async function sendMail({ to, subject, html }) {
   return info;
 }
 
-function sendVerificationEmail({ to, rawToken }) {
-  const link = `${env.clientUrl}/verify-email?token=${rawToken}`;
+function sendVerificationOtpEmail({ to, otp }) {
+  const safeOtp = escapeHtml(otp);
+  const minutes = env.tokenExpiry.emailVerificationOtpMinutes;
   return sendMail({
     to,
-    subject: 'Verify your WorkZen account',
+    subject: 'Your WorkZen verification code',
     html: `
-      <p>Welcome to WorkZen. Please verify your email to activate your account.</p>
-      <p><a href="${link}">Verify my email</a></p>
-      <p>This link expires in ${env.tokenExpiry.emailVerificationHours} hours. If you didn't request this, you can ignore this email.</p>
+      <p>Welcome to WorkZen. Enter this code on the verification screen to activate your account:</p>
+      <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${safeOtp}</p>
+      <p>This code expires in ${minutes} minutes. If you didn't create an account, you can ignore this email.</p>
     `,
   });
 }
@@ -68,15 +69,16 @@ function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }
   });
 }
 
-function sendPasswordResetEmail({ to, rawToken }) {
-  const link = `${env.clientUrl}/reset-password?token=${rawToken}`;
+function sendPasswordResetOtpEmail({ to, otp }) {
+  const safeOtp = escapeHtml(otp);
+  const minutes = env.tokenExpiry.passwordResetOtpMinutes;
   return sendMail({
     to,
-    subject: 'Reset your WorkZen password',
+    subject: 'Your WorkZen password reset code',
     html: `
-      <p>We received a request to reset your WorkZen password.</p>
-      <p><a href="${link}">Reset my password</a></p>
-      <p>This link expires in ${env.tokenExpiry.passwordResetMinutes} minutes. If you didn't request this, you can ignore this email.</p>
+      <p>We received a request to reset your WorkZen password. Enter this code in the app:</p>
+      <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${safeOtp}</p>
+      <p>This code expires in ${minutes} minutes. If you didn't request this, you can ignore this email.</p>
     `,
   });
 }
@@ -141,8 +143,8 @@ function sendUnlockRequestDeniedEmail({ to, employeeName, dateKey, decisionNote 
 
 module.exports = {
   sendMail,
-  sendVerificationEmail,
-  sendPasswordResetEmail,
+  sendVerificationOtpEmail,
+  sendPasswordResetOtpEmail,
   sendMemberInvitationEmail,
   sendEmployeeInvitationEmail,
   sendUnlockRequestSubmittedEmail,

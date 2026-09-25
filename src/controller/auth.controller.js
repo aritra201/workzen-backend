@@ -1,6 +1,7 @@
 const authService = require('../service/auth.service');
 const { resolveMemberships } = require('../service/membershipContext.service');
 const { AppError } = require('../utils/AppError');
+const { parseOtpInput } = require('../helper/otp.helper');
 
 async function register(req, res) {
   const { companyName, email, password } = req.body;
@@ -15,19 +16,21 @@ async function register(req, res) {
   const result = await authService.registerCompanyManual({ companyName, email, password });
 
   res.status(201).json({
-    message: 'Account created. Check your email to verify your account.',
+    message: 'Account created. Enter the 4-digit code sent to your email to verify.',
     userId: result.userId,
     companyId: result.companyId,
+    email: result.email,
   });
 }
 
 async function verifyEmail(req, res) {
-  const { token } = req.query;
-  if (!token) {
-    throw new AppError('token is required', 400);
+  const { email, otp } = req.body;
+  if (!email) {
+    throw new AppError('email is required', 400);
   }
+  parseOtpInput(otp);
 
-  await authService.verifyEmail(token);
+  await authService.verifyEmailWithOtp({ email, otp });
   res.status(200).json({ message: 'Email verified — you can now log in.' });
 }
 
@@ -38,9 +41,8 @@ async function resendVerification(req, res) {
   }
 
   await authService.resendVerificationEmail(email);
-  // Deliberately generic response — see service docstring.
   res.status(200).json({
-    message: 'If that email is registered and unverified, a new link has been sent.',
+    message: 'If that email is registered and unverified, a new verification code has been sent.',
   });
 }
 
@@ -92,20 +94,21 @@ async function forgotPassword(req, res) {
 
   await authService.forgotPassword(email);
   res.status(200).json({
-    message: 'If that email is registered, a password reset link has been sent.',
+    message: 'If that email is registered, a password reset code has been sent.',
   });
 }
 
 async function resetPassword(req, res) {
-  const { token, newPassword } = req.body;
-  if (!token || !newPassword) {
-    throw new AppError('token and newPassword are required', 400);
+  const { email, otp, newPassword } = req.body;
+  if (!email || otp === undefined || otp === null || !newPassword) {
+    throw new AppError('email, otp, and newPassword are required', 400);
   }
+  parseOtpInput(otp);
   if (newPassword.length < 8) {
     throw new AppError('Password must be at least 8 characters', 400);
   }
 
-  await authService.resetPassword({ rawToken: token, newPassword });
+  await authService.resetPasswordWithOtp({ email, otp, newPassword });
   res.status(200).json({ message: 'Password updated — you can now log in.' });
 }
 

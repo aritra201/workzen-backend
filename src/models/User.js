@@ -40,8 +40,10 @@ const userSchema = new mongoose.Schema(
       required: true,
       default: false,
     },
+    // Hashed 4-digit email verification OTP (not stored in plain text).
     email_verification_token_hash: { type: String, select: false },
     email_verification_expires: { type: Date, select: false },
+    // Hashed 4-digit password reset OTP.
     password_reset_token_hash: { type: String, select: false },
     password_reset_expires: { type: Date, select: false },
     current_refresh_token_hash: { type: String, select: false },

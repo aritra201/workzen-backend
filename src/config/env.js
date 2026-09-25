@@ -46,8 +46,8 @@ module.exports = {
   },
 
   tokenExpiry: {
-    emailVerificationHours: 24,
-    passwordResetMinutes: 60,
+    emailVerificationOtpMinutes: Number(process.env.EMAIL_VERIFICATION_OTP_MINUTES) || 30,
+    passwordResetOtpMinutes: Number(process.env.PASSWORD_RESET_OTP_MINUTES) || 30,
   },
 
   // Planning §4.5: approved unlock stays editable for this many hours, then re-locks.

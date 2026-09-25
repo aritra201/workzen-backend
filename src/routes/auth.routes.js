@@ -17,7 +17,7 @@ const authLimiter = rateLimit({
 });
 
 router.post('/register', authLimiter, asyncHandler(authController.register));
-router.get('/verify-email', asyncHandler(authController.verifyEmail));
+router.post('/verify-email', authLimiter, asyncHandler(authController.verifyEmail));
 router.post('/resend-verification', authLimiter, asyncHandler(authController.resendVerification));
 
 router.post('/google', authLimiter, asyncHandler(authController.googleAuth));
