@@ -3,6 +3,7 @@ const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
 const { dateKeyToUtcDate, getCompanyTodayDateKey } = require('../utils/timezone.helper');
+const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
 const {
   getOrCreateAttendanceForEmployeeDate,
   serializeAttendanceRecord,
@@ -178,6 +179,7 @@ async function listExtraShiftDeclarations({
   limit,
   declarationsPage,
   declarationsLimit,
+  declarationsEmployeeId,
   employeeId,
 }) {
   const dateKey = date ? parseDateKey(date) : getCompanyTodayDateKey(company.timezone);
@@ -215,17 +217,23 @@ async function listExtraShiftDeclarations({
   };
 
   const declAttendances = await Attendance.find(declarationAttendanceFilter)
-    .select('employee_id shifts lock_attendance')
+    .select('employee_id shifts lock_attendance created_at')
+    .sort({ created_at: -1 })
     .populate({
       path: 'employee_id',
       select: 'employee_name employee_email is_active user_id',
       match: { is_active: true, user_id: { $ne: null } },
     });
 
-  const allDeclarations = declAttendances
+  let allDeclarations = declAttendances
     .filter((record) => record.employee_id)
-    .map((record) => buildExtraShiftListRow(record.employee_id, record))
-    .sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || ''));
+    .map((record) => buildExtraShiftListRow(record.employee_id, record));
+
+  const declFilterIds = parseEmployeeIdsFromQuery(declarationsEmployeeId);
+  if (declFilterIds.length) {
+    const idSet = new Set(declFilterIds.map((id) => String(id)));
+    allDeclarations = allDeclarations.filter((row) => idSet.has(String(row.employeeId)));
+  }
 
   const declarationsTotal = allDeclarations.length;
   const declarations = allDeclarations.slice(

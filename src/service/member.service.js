@@ -42,6 +42,9 @@ async function loadMemberProfileForUser(userId, memberProfileId) {
 /**
  * FR-021: list members for the admin's company.
  */
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 100;
+
 async function listMembers(companyId) {
   const members = await MemberProfile.find({ company_id: companyId })
     .populate('user_id', 'email')
@@ -49,6 +52,38 @@ async function listMembers(companyId) {
     .sort({ created_at: -1 });
 
   return members.map(serializeMember);
+}
+
+async function listMembersPaginated(companyId, { page, limit } = {}) {
+  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+  const limitNum = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
+  );
+  const skip = (pageNum - 1) * limitNum;
+
+  const filter = { company_id: companyId };
+
+  const [total, members] = await Promise.all([
+    MemberProfile.countDocuments(filter),
+    MemberProfile.find(filter)
+      .populate('user_id', 'email')
+      .populate('company_id', 'company_name')
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limitNum),
+  ]);
+
+  const items = members.map(serializeMember);
+
+  return {
+    page: pageNum,
+    limit: limitNum,
+    total,
+    totalPages: total === 0 ? 0 : Math.ceil(total / limitNum),
+    items,
+    members: items,
+  };
 }
 
 async function getMyMemberProfile({ userId, memberProfileId }) {
@@ -333,6 +368,7 @@ async function setMemberActive({ company, adminUserId, memberId, isActive }) {
 
 module.exports = {
   listMembers,
+  listMembersPaginated,
   getMyMemberProfile,
   updateMyMemberProfile,
   uploadMyMemberProfilePicture,

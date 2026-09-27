@@ -242,12 +242,52 @@ async function resendEmployeeInvitation({ company, adminUserId, employeeEmail })
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 
+const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
+
 async function listEmployees(companyId) {
   const employees = await EmployeeProfile.find({ company_id: companyId })
     .populate('company_id', 'company_name')
     .sort({ created_at: -1 });
 
   return employees.map(serializeEmployee);
+}
+
+/**
+ * Paginated company roster with optional employeeId filter (comma-separated in query).
+ */
+async function listEmployeesPaginated(companyId, { page, limit, employeeId } = {}) {
+  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+  const limitNum = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
+  );
+  const skip = (pageNum - 1) * limitNum;
+
+  const filter = { company_id: companyId };
+  const employeeIds = parseEmployeeIdsFromQuery(employeeId);
+  if (employeeIds.length) {
+    filter._id = employeeIds.length === 1 ? employeeIds[0] : { $in: employeeIds };
+  }
+
+  const [total, employees] = await Promise.all([
+    EmployeeProfile.countDocuments(filter),
+    EmployeeProfile.find(filter)
+      .populate('company_id', 'company_name')
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limitNum),
+  ]);
+
+  const items = employees.map(serializeEmployee);
+
+  return {
+    page: pageNum,
+    limit: limitNum,
+    total,
+    totalPages: total === 0 ? 0 : Math.ceil(total / limitNum),
+    items,
+    employees: items,
+  };
 }
 
 function serializeEmployeeDropdownOption(employee) {
@@ -276,7 +316,7 @@ async function listEmployeeDropdownOptions(companyId) {
 /**
  * Paginated roster of active (present) employees for the company admin.
  */
-async function listPresentEmployees(companyId, { page, limit }) {
+async function listPresentEmployees(companyId, { page, limit, employeeId }) {
   const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
   const limitNum = Math.min(
     MAX_LIST_LIMIT,
@@ -285,6 +325,10 @@ async function listPresentEmployees(companyId, { page, limit }) {
   const skip = (pageNum - 1) * limitNum;
 
   const filter = { company_id: companyId, is_active: true };
+  const employeeIds = parseEmployeeIdsFromQuery(employeeId);
+  if (employeeIds.length) {
+    filter._id = employeeIds.length === 1 ? employeeIds[0] : { $in: employeeIds };
+  }
 
   const [total, employees] = await Promise.all([
     EmployeeProfile.countDocuments(filter),
@@ -482,6 +526,7 @@ async function uploadMyEmployeeProfilePicture({ userId, employeeProfileId, file 
 
 module.exports = {
   listEmployees,
+  listEmployeesPaginated,
   listEmployeeDropdownOptions,
   listPresentEmployees,
   inviteEmployee,

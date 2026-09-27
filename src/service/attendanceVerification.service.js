@@ -13,6 +13,7 @@ const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
 const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
 const { parseObjectId } = require('../utils/objectId.helper');
+const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
 const {
   getCompanyTodayDateKey,
   utcDateToDateKey,
@@ -272,19 +273,25 @@ async function loadCompanyAttendance(companyId, attendanceId) {
   return attendance;
 }
 
-async function loadEmployeeForCompany(companyId, employeeId) {
-  if (!employeeId) {
-    return null;
+async function loadEmployeesForCompanyFilter(companyId, employeeIdRaw) {
+  const ids = parseEmployeeIdsFromQuery(employeeIdRaw);
+  if (!ids.length) {
+    return { employees: [], filter: null };
   }
-  const id = parseObjectId(employeeId, 'employeeId');
-  const employee = await EmployeeProfile.findOne({
-    _id: id,
+
+  const employees = await EmployeeProfile.find({
+    _id: { $in: ids },
     company_id: companyId,
   });
-  if (!employee) {
-    throw new AppError('Employee not found in this company', 404);
+
+  if (employees.length !== ids.length) {
+    throw new AppError('One or more employees were not found in this company', 404);
   }
-  return employee;
+
+  const filter =
+    ids.length === 1 ? { employee_id: ids[0] } : { employee_id: { $in: ids } };
+
+  return { employees, filter };
 }
 
 function assertShiftReviewable(shift, shiftKey) {
@@ -370,7 +377,8 @@ async function listCompanyAttendance(
     defaultWindowDays: DEFAULT_LIST_DAYS,
   });
 
-  const employee = await loadEmployeeForCompany(company._id, employeeId);
+  const { employees: filterEmployees, filter: employeeFilter } =
+    await loadEmployeesForCompanyFilter(company._id, employeeId);
 
   const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
   const limitNum = Math.min(
@@ -381,17 +389,28 @@ async function listCompanyAttendance(
   const filter = {
     company_id: company._id,
     date: dateRange,
+    ...(employeeFilter || {}),
   };
-  if (employee) {
-    filter.employee_id = employee._id;
-  }
 
-  const query = Attendance.find(filter).sort({ date: -1, _id: -1 });
+  const query = Attendance.find(filter).sort({ created_at: -1, date: -1, _id: -1 });
   let records = await query.lean();
 
   if (statusFilter) {
     records = records.filter((doc) => attendanceMatchesStatusFilter(doc, statusFilter));
   }
+
+  records.sort((a, b) => {
+    const createdDiff =
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    if (createdDiff !== 0) {
+      return createdDiff;
+    }
+    const dateDiff = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+    if (dateDiff !== 0) {
+      return dateDiff;
+    }
+    return String(b._id).localeCompare(String(a._id));
+  });
 
   const total = records.length;
   const skip = (pageNum - 1) * limitNum;
@@ -406,7 +425,9 @@ async function listCompanyAttendance(
     startDate: startDateKey,
     endDate: endDateKey,
     status: statusFilter,
-    employeeId: employee ? employee._id : null,
+    employeeId: filterEmployees.length
+      ? filterEmployees.map((e) => e._id)
+      : null,
     page: pageNum,
     limit: limitNum,
     total,

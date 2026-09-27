@@ -25,7 +25,15 @@ async function declare(req, res) {
 }
 
 async function list(req, res) {
-  const { date, page, limit, declarationsPage, declarationsLimit, employeeId } = req.query;
+  const {
+    date,
+    page,
+    limit,
+    declarationsPage,
+    declarationsLimit,
+    declarationsEmployeeId,
+    employeeId,
+  } = req.query;
   const result = await extraShiftService.listExtraShiftDeclarations({
     company: req.company,
     date,
@@ -33,6 +41,7 @@ async function list(req, res) {
     limit,
     declarationsPage,
     declarationsLimit,
+    declarationsEmployeeId,
     employeeId: employeeId ? parseObjectId(employeeId, 'employeeId') : undefined,
   });
   res.status(200).json(result);

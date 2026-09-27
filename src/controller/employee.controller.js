@@ -32,14 +32,33 @@ async function uploadMyProfilePicture(req, res) {
 }
 
 async function list(req, res) {
+  const { page, limit, employeeId } = req.query;
+  if (page != null || limit != null || employeeId) {
+    const data = await employeeService.listEmployeesPaginated(req.company._id, {
+      page,
+      limit,
+      employeeId,
+    });
+    res.status(200).json(data);
+    return;
+  }
   const employees = await employeeService.listEmployees(req.company._id);
   res.status(200).json({ employees });
 }
 
 async function listPresent(req, res) {
-  const { page, limit } = req.query;
-  const data = await employeeService.listPresentEmployees(req.company._id, { page, limit });
+  const { page, limit, employeeId } = req.query;
+  const data = await employeeService.listPresentEmployees(req.company._id, {
+    page,
+    limit,
+    employeeId,
+  });
   res.status(200).json(data);
+}
+
+async function listDropdownForAdmin(req, res) {
+  const employees = await employeeService.listEmployeeDropdownOptions(req.company._id);
+  res.status(200).json({ employees });
 }
 
 async function listDropdown(req, res) {
@@ -114,6 +133,7 @@ module.exports = {
   list,
   listPresent,
   listDropdown,
+  listDropdownForAdmin,
   invite,
   resendInvite,
   updateStatus,

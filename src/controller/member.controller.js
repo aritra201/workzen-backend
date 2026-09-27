@@ -30,6 +30,12 @@ async function uploadMyProfilePicture(req, res) {
 }
 
 async function list(req, res) {
+  const { page, limit } = req.query;
+  if (page != null || limit != null) {
+    const data = await memberService.listMembersPaginated(req.company._id, { page, limit });
+    res.status(200).json(data);
+    return;
+  }
   const members = await memberService.listMembers(req.company._id);
   res.status(200).json({ members });
 }

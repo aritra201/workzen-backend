@@ -34,6 +34,7 @@ router.post(
 router.use(requireAuth, requireCompanyAdmin);
 
 router.get('/', asyncHandler(employeeController.list));
+router.get('/dropdown-options', asyncHandler(employeeController.listDropdownForAdmin));
 router.get('/present', asyncHandler(employeeController.listPresent));
 router.post('/invitations', inviteLimiter, asyncHandler(employeeController.invite));
 router.post('/invitations/resend', inviteLimiter, asyncHandler(employeeController.resendInvite));
