@@ -7,6 +7,7 @@ const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper'
 const {
   getOrCreateAttendanceForEmployeeDate,
   serializeAttendanceRecord,
+  resolveShiftStatus,
 } = require('./attendance.service');
 
 const DEFAULT_LIST_LIMIT = 20;
@@ -119,23 +120,25 @@ async function declareExtraShifts({
   return serializeAttendanceRecord(attendance, dateKey, timezone);
 }
 
-function serializeDeclaredExtraShift(shift) {
+function serializeDeclaredExtraShift(shift, shiftKey) {
   if (!shift?.declared) {
     return null;
   }
   return {
     declared: true,
     declaredAt: shift.declared_at ?? null,
+    marked: Boolean(shift.marked),
     fulfilled: Boolean(shift.amount),
+    status: resolveShiftStatus(shift, shiftKey),
   };
 }
 
 function buildExtraShiftListRow(employee, attendance) {
   const extraDay = attendance
-    ? serializeDeclaredExtraShift(attendance.shifts?.extra_day)
+    ? serializeDeclaredExtraShift(attendance.shifts?.extra_day, SHIFT_KEY.EXTRA_DAY)
     : null;
   const extraNight = attendance
-    ? serializeDeclaredExtraShift(attendance.shifts?.extra_night)
+    ? serializeDeclaredExtraShift(attendance.shifts?.extra_night, SHIFT_KEY.EXTRA_NIGHT)
     : null;
 
   return {

@@ -43,28 +43,43 @@ function isExtraShiftKey(shiftKey) {
   return EXTRA_SHIFTS.has(shiftKey);
 }
 
-function extraShiftAwaitingEmployeeSubmission(shift) {
-  return !shiftHasEmployeeSubmission(shift);
+function resolveRegularShiftStatus(shift) {
+  if (!shift?.marked) {
+    return SHIFT_STATUS.AWAITING_ATTENDANCE;
+  }
+  if (
+    shift.status === SHIFT_STATUS.VERIFIED ||
+    shift.status === SHIFT_STATUS.REJECTED
+  ) {
+    return shift.status;
+  }
+  if (!shiftHasEmployeeSubmission(shift)) {
+    return SHIFT_STATUS.AWAITING_SUBMISSION;
+  }
+  return SHIFT_STATUS.PENDING_VERIFICATION;
 }
 
-/** Effective status for API/filtering (handles legacy extra-shift rows). */
+/** Effective status for API/filtering (handles legacy rows stored with stale status). */
 function resolveShiftStatus(shift, shiftKey) {
   if (isExtraShiftKey(shiftKey)) {
     if (!shift?.declared) {
       return shift?.status || SHIFT_STATUS.AWAITING_ATTENDANCE;
     }
-    if (!shift.status) {
+    if (!shift.marked) {
       return SHIFT_STATUS.AWAITING_ATTENDANCE;
     }
     if (
-      shift.status === SHIFT_STATUS.PENDING_VERIFICATION &&
-      extraShiftAwaitingEmployeeSubmission(shift)
+      shift.status === SHIFT_STATUS.VERIFIED ||
+      shift.status === SHIFT_STATUS.REJECTED
     ) {
-      return SHIFT_STATUS.AWAITING_ATTENDANCE;
+      return shift.status;
     }
-    return shift.status;
+    if (!shiftHasEmployeeSubmission(shift)) {
+      return SHIFT_STATUS.AWAITING_SUBMISSION;
+    }
+    return SHIFT_STATUS.PENDING_VERIFICATION;
   }
-  return shift?.status || SHIFT_STATUS.PENDING_VERIFICATION;
+  return resolveRegularShiftStatus(shift);
 }
 
 /** FR-053: employee cannot fill undeclared extra shifts. */
@@ -286,17 +301,18 @@ async function saveAttendanceWithShiftGuards(attendance, beforeMarks) {
   await attendance.save();
 }
 
-function serializeRegularShift(shift) {
+function serializeRegularShift(shift, shiftKey) {
   if (!shift || !shift.marked) {
     return null;
   }
+  const key = shiftKey || SHIFT_KEY.DAY;
   return {
     marked: shift.marked,
     amount: shift.amount ?? null,
     comment: shift.comment ?? null,
     workPictures: shift.work_picture ?? [],
     geoLocation: shift.geo_location ?? null,
-    status: shift.status,
+    status: resolveShiftStatus(shift, key),
   };
 }
 
@@ -345,8 +361,8 @@ function serializeAttendanceRecord(attendance, dateKey, timezone) {
       todayKey,
     }),
     shifts: {
-      day: serializeRegularShift(attendance.shifts.day),
-      night: serializeRegularShift(attendance.shifts.night),
+      day: serializeRegularShift(attendance.shifts.day, SHIFT_KEY.DAY),
+      night: serializeRegularShift(attendance.shifts.night, SHIFT_KEY.NIGHT),
       extraDay: serializeExtraShift(attendance.shifts.extra_day, SHIFT_KEY.EXTRA_DAY),
       extraNight: serializeExtraShift(attendance.shifts.extra_night, SHIFT_KEY.EXTRA_NIGHT),
     },
@@ -487,12 +503,7 @@ async function confirmTodayShift({ employeeProfile, shiftKey, dateKey: requested
   }
 
   shift.marked = true;
-  if (!isExtraShiftKey(shiftKey) && !shift.status) {
-    shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
-  }
-  if (isExtraShiftKey(shiftKey) && !shift.status) {
-    shift.status = SHIFT_STATUS.AWAITING_ATTENDANCE;
-  }
+  shift.status = SHIFT_STATUS.AWAITING_SUBMISSION;
 
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);

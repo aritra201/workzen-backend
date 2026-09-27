@@ -119,7 +119,7 @@ function serializeAdminRegularShift(shift, shiftKey) {
     comment: shift.comment ?? null,
     workPictures: shift.work_picture ?? [],
     geoLocation: shift.geo_location ?? null,
-    status: shift.status,
+    status: resolveShiftStatus(shift, shiftKey),
     verifiedBy: shift.verified_by ?? null,
     verifiedAt: shift.verified_at ?? null,
   };
@@ -175,8 +175,8 @@ function serializeEmployeeShift(attendance, shiftKey) {
     return null;
   }
   const body = isExtraShiftKey(shiftKey)
-    ? serializeExtraShift(attendance.shifts[shiftKey])
-    : serializeRegularShift(attendance.shifts[shiftKey]);
+    ? serializeExtraShift(attendance.shifts[shiftKey], shiftKey)
+    : serializeRegularShift(attendance.shifts[shiftKey], shiftKey);
   if (!body) {
     return null;
   }
