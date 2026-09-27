@@ -21,6 +21,14 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_DAYS = 30;
 
+/** History list: only dates where the employee confirmed at least one shift. */
+const EMPLOYEE_MARKED_SHIFT_OR = [
+  { 'shifts.day.marked': true },
+  { 'shifts.night.marked': true },
+  { 'shifts.extra_day.marked': true },
+  { 'shifts.extra_night.marked': true },
+];
+
 function assertEmployeeShiftKey(shiftKey) {
   if (!ALL_EMPLOYEE_SHIFTS.has(shiftKey)) {
     throw new AppError('Shift-Key must be day, night, extra_day, or extra_night', 400);
@@ -306,6 +314,17 @@ function serializeExtraShift(shift, shiftKey) {
   };
 }
 
+function serializeAttendanceRecordForEmployeeList(attendance, dateKey, timezone) {
+  const record = serializeAttendanceRecord(attendance, dateKey, timezone);
+  if (record.shifts.extraDay && !record.shifts.extraDay.marked) {
+    record.shifts.extraDay = null;
+  }
+  if (record.shifts.extraNight && !record.shifts.extraNight.marked) {
+    record.shifts.extraNight = null;
+  }
+  return record;
+}
+
 function serializeAttendanceRecord(attendance, dateKey, timezone) {
   const todayKey = getCompanyTodayDateKey(timezone);
   return {
@@ -414,6 +433,7 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
     employee_id: employeeProfile._id,
     company_id: company._id,
     date: dateRange,
+    $or: EMPLOYEE_MARKED_SHIFT_OR,
   };
 
   const [total, records] = await Promise.all([
@@ -430,7 +450,11 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
     total,
     totalPages: total === 0 ? 0 : Math.ceil(total / limitNum),
     items: records.map((attendance) =>
-      serializeAttendanceRecord(attendance, utcDateToDateKey(attendance.date), timezone)
+      serializeAttendanceRecordForEmployeeList(
+        attendance,
+        utcDateToDateKey(attendance.date),
+        timezone
+      )
     ),
   };
 }

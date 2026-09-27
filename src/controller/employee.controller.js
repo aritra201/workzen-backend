@@ -80,7 +80,7 @@ async function listDropdown(req, res) {
 async function invite(req, res) {
   const { employeeName, employeeEmail } = req.body;
   if (!employeeName || !employeeEmail) {
-    throw new AppError('employeeName and employeeEmail are required', 400);
+    throw new AppError('Employee Name and Employee Email are required', 400);
   }
 
   const result = await employeeService.inviteEmployee({
