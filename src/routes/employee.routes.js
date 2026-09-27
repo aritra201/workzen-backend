@@ -21,6 +21,7 @@ const activeEmployeeMiddleware = [requireAuth, requireActiveEmployee];
 
 // Public — no auth; requires companyId query (see listDropdown controller).
 router.get('/dropdown', asyncHandler(employeeController.listDropdown));
+router.get('/dropdown-options', asyncHandler(employeeController.listDropdown));
 
 router.get('/me', activeEmployeeMiddleware, asyncHandler(employeeController.getMyProfile));
 router.patch('/me', activeEmployeeMiddleware, asyncHandler(employeeController.updateMyProfile));
@@ -34,7 +35,6 @@ router.post(
 router.use(requireAuth, requireCompanyAdmin);
 
 router.get('/', asyncHandler(employeeController.list));
-router.get('/dropdown-options', asyncHandler(employeeController.listDropdownForAdmin));
 router.get('/present', asyncHandler(employeeController.listPresent));
 router.post('/invitations', inviteLimiter, asyncHandler(employeeController.invite));
 router.post('/invitations/resend', inviteLimiter, asyncHandler(employeeController.resendInvite));

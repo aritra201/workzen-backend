@@ -56,11 +56,6 @@ async function listPresent(req, res) {
   res.status(200).json(data);
 }
 
-async function listDropdownForAdmin(req, res) {
-  const employees = await employeeService.listEmployeeDropdownOptions(req.company._id);
-  res.status(200).json({ employees });
-}
-
 async function listDropdown(req, res) {
   const { companyId } = req.query;
   if (!companyId) {
@@ -133,7 +128,6 @@ module.exports = {
   list,
   listPresent,
   listDropdown,
-  listDropdownForAdmin,
   invite,
   resendInvite,
   updateStatus,
