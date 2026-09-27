@@ -25,12 +25,16 @@ async function getEmployeeInvitationPreview(rawToken) {
 
   const employeeName = employee.employee_name || invitation.invited_name || null;
 
+  const companyName = company?.company_name?.trim() || null;
+  const email = invitation.invited_email;
+
   return {
     employeeName,
-    employeeEmail: invitation.invited_email,
+    employeeEmail: email,
+    email,
     role: INVITATION_ROLE.EMPLOYEE,
     companyId: invitation.company_id,
-    companyName: company?.company_name ?? null,
+    companyName,
     expiresAt: invitation.expires_at,
     needsEmployeeName: !employeeName,
   };

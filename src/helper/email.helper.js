@@ -43,7 +43,7 @@ function sendVerificationOtpEmail({ to, otp }) {
 }
 
 function sendMemberInvitationEmail({ to, rawToken, companyName }) {
-  const link = `${env.clientUrl}/accept-member-invite?token=${rawToken}`;
+  const link = `${env.clientUrl}/invite/member?token=${rawToken}`;
   return sendMail({
     to,
     subject: `You're invited to view ${companyName} on WorkZen`,
@@ -56,7 +56,7 @@ function sendMemberInvitationEmail({ to, rawToken, companyName }) {
 }
 
 function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }) {
-  const link = `${env.clientUrl}/accept-employee-invite?token=${rawToken}`;
+  const link = `${env.clientUrl}/invite/employee?token=${rawToken}`;
   return sendMail({
     to,
     subject: `You're invited to join ${companyName} on WorkZen`,

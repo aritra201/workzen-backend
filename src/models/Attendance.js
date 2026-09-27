@@ -44,7 +44,7 @@ const extraShiftSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: Object.values(SHIFT_STATUS),
-      default: SHIFT_STATUS.PENDING_VERIFICATION,
+      default: SHIFT_STATUS.AWAITING_ATTENDANCE,
     },
     verified_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     verified_at: { type: Date },

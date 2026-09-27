@@ -23,6 +23,7 @@ const {
   serializeAttendanceRecord,
   serializeRegularShift,
   serializeExtraShift,
+  resolveShiftStatus,
 } = require('./attendance.service');
 
 const SHIFT_KEYS = Object.values(SHIFT_KEY);
@@ -59,8 +60,7 @@ function shiftMatchesStatusFilter(shift, shiftKey, statusFilter) {
   if (!shiftIsVisibleToCompany(shift, shiftKey)) {
     return false;
   }
-  const status = shift?.status || SHIFT_STATUS.PENDING_VERIFICATION;
-  return status === statusFilter;
+  return resolveShiftStatus(shift, shiftKey) === statusFilter;
 }
 
 function attendanceMatchesStatusFilter(attendance, statusFilter) {
@@ -137,7 +137,7 @@ function serializeAdminExtraShift(shift, shiftKey) {
     comment: shift.comment ?? null,
     workPictures: shift.work_picture ?? [],
     geoLocation: shift.geo_location ?? null,
-    status: shift.status,
+    status: resolveShiftStatus(shift, shiftKey),
     verifiedBy: shift.verified_by ?? null,
     verifiedAt: shift.verified_at ?? null,
   };
@@ -149,7 +149,7 @@ function summarizeShiftForList(shift, shiftKey) {
   }
   const base = {
     shiftKey,
-    status: shift?.status || SHIFT_STATUS.PENDING_VERIFICATION,
+    status: resolveShiftStatus(shift, shiftKey),
     marked: Boolean(shift?.marked),
   };
   if (isExtraShiftKey(shiftKey)) {

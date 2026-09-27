@@ -31,6 +31,30 @@ function isExtraShiftKey(shiftKey) {
   return EXTRA_SHIFTS.has(shiftKey);
 }
 
+function extraShiftAwaitingEmployeeSubmission(shift) {
+  return shift.amount == null || !shift.comment;
+}
+
+/** Effective status for API/filtering (handles legacy extra-shift rows). */
+function resolveShiftStatus(shift, shiftKey) {
+  if (isExtraShiftKey(shiftKey)) {
+    if (!shift?.declared) {
+      return shift?.status || SHIFT_STATUS.AWAITING_ATTENDANCE;
+    }
+    if (!shift.status) {
+      return SHIFT_STATUS.AWAITING_ATTENDANCE;
+    }
+    if (
+      shift.status === SHIFT_STATUS.PENDING_VERIFICATION &&
+      extraShiftAwaitingEmployeeSubmission(shift)
+    ) {
+      return SHIFT_STATUS.AWAITING_ATTENDANCE;
+    }
+    return shift.status;
+  }
+  return shift?.status || SHIFT_STATUS.PENDING_VERIFICATION;
+}
+
 /** FR-053: employee cannot fill undeclared extra shifts. */
 function assertExtraShiftDeclared(shift, shiftKey) {
   if (!shift?.declared) {
@@ -265,10 +289,11 @@ function serializeRegularShift(shift) {
 }
 
 /** FR-053: omit extra shift data until admin has declared it. */
-function serializeExtraShift(shift) {
+function serializeExtraShift(shift, shiftKey) {
   if (!shift?.declared) {
     return null;
   }
+  const key = shiftKey || SHIFT_KEY.EXTRA_DAY;
   return {
     declared: true,
     declaredAt: shift.declared_at ?? null,
@@ -277,7 +302,7 @@ function serializeExtraShift(shift) {
     comment: shift.comment ?? null,
     workPictures: shift.work_picture ?? [],
     geoLocation: shift.geo_location ?? null,
-    status: shift.status,
+    status: resolveShiftStatus(shift, key),
   };
 }
 
@@ -299,8 +324,8 @@ function serializeAttendanceRecord(attendance, dateKey, timezone) {
     shifts: {
       day: serializeRegularShift(attendance.shifts.day),
       night: serializeRegularShift(attendance.shifts.night),
-      extraDay: serializeExtraShift(attendance.shifts.extra_day),
-      extraNight: serializeExtraShift(attendance.shifts.extra_night),
+      extraDay: serializeExtraShift(attendance.shifts.extra_day, SHIFT_KEY.EXTRA_DAY),
+      extraNight: serializeExtraShift(attendance.shifts.extra_night, SHIFT_KEY.EXTRA_NIGHT),
     },
     createdAt: attendance.created_at,
     updatedAt: attendance.updated_at,
@@ -434,8 +459,11 @@ async function confirmTodayShift({ employeeProfile, shiftKey, dateKey: requested
   }
 
   shift.marked = true;
-  if (!shift.status) {
+  if (!isExtraShiftKey(shiftKey) && !shift.status) {
     shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
+  }
+  if (isExtraShiftKey(shiftKey) && !shift.status) {
+    shift.status = SHIFT_STATUS.AWAITING_ATTENDANCE;
   }
 
   attendance.markModified(`shifts.${shiftKey}`);
@@ -847,4 +875,5 @@ module.exports = {
   replaceTodayWorkPictures,
   assertEmployeeShiftKey,
   isExtraShiftKey,
+  resolveShiftStatus,
 };

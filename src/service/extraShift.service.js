@@ -1,5 +1,5 @@
 const { Attendance, EmployeeProfile } = require('../models');
-const { SHIFT_KEY, COMPANY_ROLE } = require('../utils/enums');
+const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
 const { dateKeyToUtcDate, getCompanyTodayDateKey } = require('../utils/timezone.helper');
@@ -68,6 +68,7 @@ async function declareExtraShifts({
       shift.declared = true;
       shift.declared_by = adminUserId;
       shift.declared_at = now;
+      shift.status = SHIFT_STATUS.AWAITING_ATTENDANCE;
       declaredKeys.push(SHIFT_KEY.EXTRA_DAY);
     }
   }
@@ -78,6 +79,7 @@ async function declareExtraShifts({
       shift.declared = true;
       shift.declared_by = adminUserId;
       shift.declared_at = now;
+      shift.status = SHIFT_STATUS.AWAITING_ATTENDANCE;
       declaredKeys.push(SHIFT_KEY.EXTRA_NIGHT);
     }
   }
