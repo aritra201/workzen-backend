@@ -14,6 +14,7 @@ const { writeActivityLog } = require('../helper/activityLog.helper');
 const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
 const { parseObjectId } = require('../utils/objectId.helper');
 const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
+const { shiftHasEmployeeSubmission } = require('../helper/shiftSubmission.helper');
 const {
   getCompanyTodayDateKey,
   utcDateToDateKey,
@@ -304,7 +305,7 @@ function assertShiftReviewable(shift, shiftKey) {
   if (!shift?.marked) {
     throw new AppError('Shift is not confirmed', 400);
   }
-  if (shift.amount == null || !shift.comment) {
+  if (!shiftHasEmployeeSubmission(shift)) {
     throw new AppError('Shift has not been submitted for verification', 400);
   }
 }

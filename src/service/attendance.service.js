@@ -5,6 +5,10 @@ const { writeActivityLog } = require('../helper/activityLog.helper');
 const { uploadImageBuffer, deleteImagesByUrls } = require('../helper/cloudinary.helper');
 const { parseWorkPictureUrlList } = require('../helper/workPictureList.helper');
 const { MAX_WORK_PICTURES } = require('../helper/attendanceUpload.helper');
+const {
+  shiftHasEmployeeSubmission,
+  shiftSubmitPayloadHasValue,
+} = require('../helper/shiftSubmission.helper');
 const { resolveDateRangeFilter, parseRequiredDateKey } = require('../helper/dateRangeFilter.helper');
 const { isUnlockWindowActive } = require('../helper/unlockWindow.helper');
 const {
@@ -40,7 +44,7 @@ function isExtraShiftKey(shiftKey) {
 }
 
 function extraShiftAwaitingEmployeeSubmission(shift) {
-  return shift.amount == null || !shift.comment;
+  return !shiftHasEmployeeSubmission(shift);
 }
 
 /** Effective status for API/filtering (handles legacy extra-shift rows). */
@@ -384,7 +388,7 @@ function assertShiftReadyForSubmit(shift, shiftKey) {
 function assertShiftReadyForEdit(shift, shiftKey) {
   if (isExtraShiftKey(shiftKey)) {
     assertExtraShiftDeclared(shift, shiftKey);
-    if (!shift.marked || shift.amount == null || !shift.comment) {
+    if (!shift.marked || !shiftHasEmployeeSubmission(shift)) {
       throw new AppError('Submit extra shift details before editing', 400);
     }
     return;
@@ -392,7 +396,7 @@ function assertShiftReadyForEdit(shift, shiftKey) {
   if (!shift.marked) {
     throw new AppError('Shift is not confirmed for today', 400);
   }
-  if (shift.amount == null || !shift.comment) {
+  if (!shiftHasEmployeeSubmission(shift)) {
     throw new AppError('Submit shift details before editing', 400);
   }
 }
@@ -514,8 +518,8 @@ function validateGeoLocation(geoLocation) {
   if (!geoLocation || typeof geoLocation !== 'object') {
     throw new AppError('geoLocation with lat and lng is required', 400);
   }
-  const lat = Number(geoLocation.lat);
-  const lng = Number(geoLocation.lng);
+  const lat = Number(geoLocation.lat ?? geoLocation.latitude);
+  const lng = Number(geoLocation.lng ?? geoLocation.longitude);
   if (Number.isNaN(lat) || lat < -90 || lat > 90) {
     throw new AppError('geoLocation.lat must be between -90 and 90', 400);
   }
@@ -535,13 +539,31 @@ function validateAmount(amount) {
 
 function validateComment(comment) {
   if (typeof comment !== 'string' || !comment.trim()) {
-    throw new AppError('comment is required', 400);
+    throw new AppError('comment cannot be empty when provided', 400);
   }
   return comment.trim();
 }
 
+function parseOptionalSubmitAmount(amount) {
+  if (amount === undefined || amount === null || String(amount).trim() === '') {
+    return undefined;
+  }
+  return validateAmount(amount);
+}
+
+function parseOptionalSubmitComment(comment) {
+  if (comment === undefined || comment === null) {
+    return undefined;
+  }
+  const trimmed = typeof comment === 'string' ? comment.trim() : '';
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 /**
- * FR-043: initial submit for a confirmed shift (amount, comment, geo). Work pictures
+ * FR-043: initial submit for a confirmed shift (amount and/or comment, geo). Work pictures
  * may be uploaded before or after submit via the work-pictures endpoint.
  */
 async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, geoLocation, dateKey: requestedDateKey }) {
@@ -556,14 +578,26 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   const shift = attendance.shifts[shiftKey];
   assertShiftReadyForSubmit(shift, shiftKey);
 
-  const parsedAmount = validateAmount(amount);
-  const parsedComment = validateComment(comment);
+  if (!shiftSubmitPayloadHasValue(amount, comment)) {
+    throw new AppError('Provide amount and/or comment to submit', 400);
+  }
+
+  const parsedAmount = parseOptionalSubmitAmount(amount);
+  const parsedComment = parseOptionalSubmitComment(comment);
+  if (parsedAmount === undefined && parsedComment === undefined) {
+    throw new AppError('Provide amount and/or comment to submit', 400);
+  }
+
   const parsedGeo = validateGeoLocation(geoLocation);
 
-  const hadSubmission = shift.amount != null && shift.comment;
+  const hadSubmission = shiftHasEmployeeSubmission(shift);
 
-  shift.amount = parsedAmount;
-  shift.comment = parsedComment;
+  if (parsedAmount !== undefined) {
+    shift.amount = parsedAmount;
+  }
+  if (parsedComment !== undefined) {
+    shift.comment = parsedComment;
+  }
   shift.geo_location = parsedGeo;
   shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
 
