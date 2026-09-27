@@ -1,5 +1,7 @@
+const { Company } = require('../models');
 const employeeService = require('../service/employee.service');
 const { AppError } = require('../utils/AppError');
+const { parseObjectId } = require('../utils/objectId.helper');
 
 function employeeContextFromRequest(req) {
   return {
@@ -38,6 +40,22 @@ async function listPresent(req, res) {
   const { page, limit } = req.query;
   const data = await employeeService.listPresentEmployees(req.company._id, { page, limit });
   res.status(200).json(data);
+}
+
+async function listDropdown(req, res) {
+  const { companyId } = req.query;
+  if (!companyId) {
+    throw new AppError('companyId is required', 400);
+  }
+
+  const companyObjectId = parseObjectId(companyId, 'companyId');
+  const company = await Company.findById(companyObjectId);
+  if (!company) {
+    throw new AppError('Company not found', 404);
+  }
+
+  const employees = await employeeService.listEmployeeDropdownOptions(company._id);
+  res.status(200).json({ employees });
 }
 
 async function invite(req, res) {
@@ -95,6 +113,7 @@ module.exports = {
   uploadMyProfilePicture,
   list,
   listPresent,
+  listDropdown,
   invite,
   resendInvite,
   updateStatus,

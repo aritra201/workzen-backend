@@ -19,6 +19,9 @@ const inviteLimiter = rateLimit({
 
 const activeEmployeeMiddleware = [requireAuth, requireActiveEmployee];
 
+// Public — no auth; requires companyId query (see listDropdown controller).
+router.get('/dropdown', asyncHandler(employeeController.listDropdown));
+
 router.get('/me', activeEmployeeMiddleware, asyncHandler(employeeController.getMyProfile));
 router.patch('/me', activeEmployeeMiddleware, asyncHandler(employeeController.updateMyProfile));
 router.post(

@@ -250,6 +250,29 @@ async function listEmployees(companyId) {
   return employees.map(serializeEmployee);
 }
 
+function serializeEmployeeDropdownOption(employee) {
+  return {
+    employeeId: employee._id,
+    employeeName: employee.employee_name,
+    employeeEmail: employee.employee_email,
+  };
+}
+
+/**
+ * Active employees with a linked user account — for admin dropdowns (declare extra shift, etc.).
+ */
+async function listEmployeeDropdownOptions(companyId) {
+  const employees = await EmployeeProfile.find({
+    company_id: companyId,
+    is_active: true,
+    user_id: { $ne: null },
+  })
+    .select('employee_name employee_email')
+    .sort({ employee_name: 1 });
+
+  return employees.map(serializeEmployeeDropdownOption);
+}
+
 /**
  * Paginated roster of active (present) employees for the company admin.
  */
@@ -459,6 +482,7 @@ async function uploadMyEmployeeProfilePicture({ userId, employeeProfileId, file 
 
 module.exports = {
   listEmployees,
+  listEmployeeDropdownOptions,
   listPresentEmployees,
   inviteEmployee,
   resendEmployeeInvitation,
