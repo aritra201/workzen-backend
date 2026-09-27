@@ -8,10 +8,17 @@ const {
   serializeAttendanceRecord,
 } = require('./attendance.service');
 
-const EXTRA_SHIFT_API_MAP = {
-  extraDayShift: SHIFT_KEY.EXTRA_DAY,
-  extraNightShift: SHIFT_KEY.EXTRA_NIGHT,
-};
+const DEFAULT_LIST_LIMIT = 20;
+const MAX_LIST_LIMIT = 100;
+
+function parseListPaging(page, limit) {
+  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+  const limitNum = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
+  );
+  return { pageNum, limitNum, skip: (pageNum - 1) * limitNum };
+}
 
 function parseDateKey(date) {
   if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
@@ -141,25 +148,15 @@ function buildExtraShiftListRow(employee, attendance) {
   };
 }
 
-/**
- * Admin view for a date (defaults to company today): all active employees with
- * employeeId for declare UI, plus `declarations` for rows that already have
- * an extra day/night shift declared.
- */
-async function listExtraShiftDeclarations({ company, date }) {
-  const dateKey = date ? parseDateKey(date) : getCompanyTodayDateKey(company.timezone);
-  const storedDate = dateKeyToUtcDate(dateKey);
+const ACTIVE_EMPLOYEE_FILTER = (companyId) => ({
+  company_id: companyId,
+  is_active: true,
+  user_id: { $ne: null },
+});
 
-  const employeeProfiles = await EmployeeProfile.find({
-    company_id: company._id,
-    is_active: true,
-    user_id: { $ne: null },
-  })
-    .select('employee_name employee_email')
-    .sort({ employee_name: 1 });
-
+async function loadAttendanceMapForDate(companyId, storedDate) {
   const attendanceRecords = await Attendance.find({
-    company_id: company._id,
+    company_id: companyId,
     date: storedDate,
   }).select('employee_id shifts lock_attendance');
 
@@ -167,18 +164,104 @@ async function listExtraShiftDeclarations({ company, date }) {
   for (const attendance of attendanceRecords) {
     attendanceByEmployeeId.set(attendance.employee_id.toString(), attendance);
   }
+  return attendanceByEmployeeId;
+}
+
+/**
+ * Admin view for a date (defaults to company today): paginated active employees
+ * (declare UI) and paginated `declarations` for rows with extra day/night declared.
+ */
+async function listExtraShiftDeclarations({
+  company,
+  date,
+  page,
+  limit,
+  declarationsPage,
+  declarationsLimit,
+  employeeId,
+}) {
+  const dateKey = date ? parseDateKey(date) : getCompanyTodayDateKey(company.timezone);
+  const storedDate = dateKeyToUtcDate(dateKey);
+  const employeeFilter = ACTIVE_EMPLOYEE_FILTER(company._id);
+
+  const empPaging = parseListPaging(page, limit);
+  const declPaging = parseListPaging(
+    declarationsPage ?? page,
+    declarationsLimit ?? limit
+  );
+
+  const attendanceByEmployeeId = await loadAttendanceMapForDate(company._id, storedDate);
+
+  const [employeeTotal, employeeProfiles] = await Promise.all([
+    EmployeeProfile.countDocuments(employeeFilter),
+    EmployeeProfile.find(employeeFilter)
+      .select('employee_name employee_email')
+      .sort({ employee_name: 1 })
+      .skip(empPaging.skip)
+      .limit(empPaging.limitNum),
+  ]);
 
   const employees = employeeProfiles.map((employee) =>
     buildExtraShiftListRow(employee, attendanceByEmployeeId.get(employee._id.toString()))
   );
 
-  const declarations = employees.filter((row) => row.extraDay || row.extraNight);
+  const declarationAttendanceFilter = {
+    company_id: company._id,
+    date: storedDate,
+    $or: [
+      { 'shifts.extra_day.declared': true },
+      { 'shifts.extra_night.declared': true },
+    ],
+  };
+
+  const declAttendances = await Attendance.find(declarationAttendanceFilter)
+    .select('employee_id shifts lock_attendance')
+    .populate({
+      path: 'employee_id',
+      select: 'employee_name employee_email is_active user_id',
+      match: { is_active: true, user_id: { $ne: null } },
+    });
+
+  const allDeclarations = declAttendances
+    .filter((record) => record.employee_id)
+    .map((record) => buildExtraShiftListRow(record.employee_id, record))
+    .sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || ''));
+
+  const declarationsTotal = allDeclarations.length;
+  const declarations = allDeclarations.slice(
+    declPaging.skip,
+    declPaging.skip + declPaging.limitNum
+  );
+
+  let employeeRow = null;
+  if (employeeId) {
+    const employee = await EmployeeProfile.findOne({
+      ...employeeFilter,
+      _id: employeeId,
+    }).select('employee_name employee_email');
+    if (employee) {
+      employeeRow = buildExtraShiftListRow(
+        employee,
+        attendanceByEmployeeId.get(employee._id.toString())
+      );
+    }
+  }
 
   return {
     date: dateKey,
     timezone: company.timezone ?? null,
+    page: empPaging.pageNum,
+    limit: empPaging.limitNum,
+    total: employeeTotal,
+    totalPages: employeeTotal === 0 ? 0 : Math.ceil(employeeTotal / empPaging.limitNum),
     employees,
+    declarationsPage: declPaging.pageNum,
+    declarationsLimit: declPaging.limitNum,
+    declarationsTotal,
+    declarationsTotalPages:
+      declarationsTotal === 0 ? 0 : Math.ceil(declarationsTotal / declPaging.limitNum),
     declarations,
+    ...(employeeRow ? { employeeRow } : {}),
   };
 }
 

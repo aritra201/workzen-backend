@@ -1,5 +1,6 @@
 const extraShiftService = require('../service/extraShift.service');
 const { AppError } = require('../utils/AppError');
+const { parseObjectId } = require('../utils/objectId.helper');
 
 async function declare(req, res) {
   const { employeeId, date, extraDayShift, extraNightShift } = req.body;
@@ -24,10 +25,15 @@ async function declare(req, res) {
 }
 
 async function list(req, res) {
-  const { date } = req.query;
+  const { date, page, limit, declarationsPage, declarationsLimit, employeeId } = req.query;
   const result = await extraShiftService.listExtraShiftDeclarations({
     company: req.company,
     date,
+    page,
+    limit,
+    declarationsPage,
+    declarationsLimit,
+    employeeId: employeeId ? parseObjectId(employeeId, 'employeeId') : undefined,
   });
   res.status(200).json(result);
 }
