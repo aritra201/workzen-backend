@@ -153,9 +153,9 @@ function summarizeShiftForList(shift, shiftKey) {
     marked: Boolean(shift?.marked),
   };
   if (isExtraShiftKey(shiftKey)) {
-    return { ...base, declared: true };
+    return { ...base, declared: true, amount: shift?.amount ?? null };
   }
-  return base;
+  return { ...base, amount: shift?.amount ?? null };
 }
 
 function shiftKeyToResponseKey(shiftKey) {
@@ -226,6 +226,7 @@ function companyAttendanceBasePayload(attendance, dateKey, timezone, employee) {
       employeeId: employee._id,
       name: employee.employee_name,
       email: employee.employee_email,
+      profilePicture: employee.employee_profile_picture ?? null,
       isActive: employee.is_active,
     },
     createdAt: attendance.created_at,
@@ -245,6 +246,7 @@ function serializeListItem(attendance, employee, timezone) {
           employeeId: employee._id,
           name: employee.employee_name,
           email: employee.employee_email,
+          profilePicture: employee.employee_profile_picture ?? null,
           isActive: employee.is_active,
         }
       : { employeeId: attendance.employee_id },

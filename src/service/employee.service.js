@@ -31,6 +31,8 @@ function serializeEmployee(employee) {
     companyName: company.company_name ?? null,
     role: COMPANY_ROLE.EMPLOYEE,
     isActive: employee.is_active,
+    /** Set after the employee accepts their invitation (links User ↔ profile). */
+    userId: employee.user_id ?? null,
     joinedAt: employee.created_at,
   };
 }
@@ -362,11 +364,14 @@ async function updateMyEmployeeProfile({ userId, employeeProfileId, body }) {
       400
     );
   }
-  if (body.employeeEmail !== undefined || body.employeeName !== undefined) {
-    throw new AppError('employeeEmail and employeeName cannot be changed here', 400);
+  if (body.employeeEmail !== undefined) {
+    throw new AppError('employeeEmail cannot be changed here', 400);
   }
 
   const updates = {};
+  if (Object.prototype.hasOwnProperty.call(body, 'employeeName')) {
+    updates.employee_name = normalizeEmployeeName(body.employeeName);
+  }
   for (const [apiKey, dbKey] of Object.entries(PROFILE_PATCH_MAP)) {
     if (Object.prototype.hasOwnProperty.call(body, apiKey)) {
       const val = body[apiKey];

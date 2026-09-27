@@ -203,9 +203,21 @@ async function loginManual({ email, password }) {
 }
 
 async function loginGoogle(idToken) {
-  const { googleId } = await verifyGoogleIdToken(idToken);
+  const { googleId, email } = await verifyGoogleIdToken(idToken);
 
-  const user = await User.findOne({ google_id: googleId });
+  let user = await User.findOne({ google_id: googleId });
+
+  if (!user) {
+    user = await User.findOne({ email: normalizeEmail(email) });
+    if (user) {
+      if (user.google_id && user.google_id !== googleId) {
+        throw new AppError('This account is linked to a different Google sign-in', 409);
+      }
+      user.google_id = googleId;
+      await user.save();
+    }
+  }
+
   if (!user) {
     throw new AppError('No account found for this Google identity', 404);
   }

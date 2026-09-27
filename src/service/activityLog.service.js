@@ -36,7 +36,40 @@ function isAttendanceRelatedLog(log) {
   return Boolean(log.metadata?.attendance_id);
 }
 
-function serializeActivityLog(log, actorEmail = null) {
+const USER_ID_VALUE_KEYS = ['verified_by', 'declared_by', 'approved_by', 'decided_by'];
+
+function collectUserIdsFromValue(value, ids) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return;
+  }
+  for (const key of USER_ID_VALUE_KEYS) {
+    if (value[key]) {
+      ids.add(String(value[key]));
+    }
+  }
+}
+
+function enrichValueWithUserEmails(value, emailById) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value;
+  }
+  const out = { ...value };
+  for (const key of USER_ID_VALUE_KEYS) {
+    const id = out[key];
+    if (!id) {
+      continue;
+    }
+    const email = emailById.get(String(id));
+    if (email) {
+      out[`${key}_email`] = email;
+    }
+  }
+  return out;
+}
+
+function serializeActivityLog(log, actorEmail = null, emailById = null) {
+  const beforeValue = log.before_value ?? null;
+  const afterValue = log.after_value ?? null;
   return {
     activityLogId: log._id,
     actorUserId: log.actor_user_id,
@@ -45,8 +78,8 @@ function serializeActivityLog(log, actorEmail = null) {
     actionType: log.action_type,
     targetType: log.target_type,
     targetId: log.target_id,
-    beforeValue: log.before_value ?? null,
-    afterValue: log.after_value ?? null,
+    beforeValue: emailById ? enrichValueWithUserEmails(beforeValue, emailById) : beforeValue,
+    afterValue: emailById ? enrichValueWithUserEmails(afterValue, emailById) : afterValue,
     metadata: log.metadata ?? null,
     createdAt: log.created_at,
   };
@@ -84,14 +117,22 @@ async function listAttendanceActivityLogs(company, attendanceId) {
     .limit(MAX_LIST_ITEMS)
     .lean();
 
-  const actorIds = [...new Set(logs.map((log) => String(log.actor_user_id)))];
-  const emailByActorId = await loadActorEmails(actorIds);
+  const actorIds = new Set(logs.map((log) => String(log.actor_user_id)));
+  for (const log of logs) {
+    collectUserIdsFromValue(log.before_value, actorIds);
+    collectUserIdsFromValue(log.after_value, actorIds);
+  }
+  const emailByActorId = await loadActorEmails([...actorIds]);
 
   return {
     attendanceId: attendanceObjectId,
     total: logs.length,
     items: logs.map((log) =>
-      serializeActivityLog(log, emailByActorId.get(String(log.actor_user_id)) ?? null)
+      serializeActivityLog(
+        log,
+        emailByActorId.get(String(log.actor_user_id)) ?? null,
+        emailByActorId
+      )
     ),
   };
 }
@@ -108,8 +149,16 @@ async function getAttendanceActivityLogDetail(company, activityLogId) {
     throw new AppError('Activity log entry not found', 404);
   }
 
-  const actor = await User.findById(log.actor_user_id).select('email').lean();
-  return serializeActivityLog(log, actor?.email ?? null);
+  const relatedIds = new Set([String(log.actor_user_id)]);
+  collectUserIdsFromValue(log.before_value, relatedIds);
+  collectUserIdsFromValue(log.after_value, relatedIds);
+  const emailById = await loadActorEmails([...relatedIds]);
+
+  return serializeActivityLog(
+    log,
+    emailById.get(String(log.actor_user_id)) ?? null,
+    emailById
+  );
 }
 
 module.exports = {

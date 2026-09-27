@@ -22,7 +22,7 @@ module.exports = {
   },
 
   google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientId: process.env.GOOGLE_CLIENT_ID?.replace(/^['"]|['"]$/g, '').trim(),
   },
 
   mail: {
