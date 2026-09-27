@@ -20,7 +20,28 @@ function createApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(cors({ origin: env.clientUrl, credentials: true }));
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) {
+          return callback(null, true);
+        }
+        if (origin === env.clientUrl) {
+          return callback(null, true);
+        }
+        if (env.nodeEnv === 'development') {
+          if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+            return callback(null, true);
+          }
+          if (/\.ngrok-free\.app$/.test(origin) || /\.ngrok\.io$/.test(origin)) {
+            return callback(null, true);
+          }
+        }
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+      },
+      credentials: true,
+    })
+  );
   app.use(express.json());
   app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
