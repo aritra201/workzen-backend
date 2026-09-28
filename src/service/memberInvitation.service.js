@@ -14,10 +14,17 @@ const { issueAndPersistTokens } = require('./auth.service');
 async function getMemberInvitationPreview(rawToken) {
   const invitation = await loadPendingMemberInvitation(rawToken);
   const company = await Company.findById(invitation.company_id);
+  const member = await MemberProfile.findOne({
+    company_id: invitation.company_id,
+    member_email: invitation.invited_email,
+  });
+
+  const memberName =
+    member?.member_name || invitation.invited_name?.trim() || null;
 
   return {
     email: invitation.invited_email,
-    memberName: invitation.invited_name ?? null,
+    memberName,
     role: INVITATION_ROLE.MEMBER,
     companyId: invitation.company_id,
     companyName: company?.company_name ?? null,
@@ -32,24 +39,92 @@ function applyInvitedMemberName(member, invitedName) {
   }
 }
 
-async function upsertActiveMemberProfile({ userId, companyId, invitedName, session }) {
-  let member = await MemberProfile.findOne({ user_id: userId, company_id: companyId }).session(
-    session
-  );
+async function linkMemberToUser({ invitation, user, session }) {
+  const email = invitation.invited_email;
+
+  let member = await MemberProfile.findOne({
+    company_id: invitation.company_id,
+    member_email: email,
+  }).session(session);
+
+  if (!member) {
+    member = await MemberProfile.findOne({
+      company_id: invitation.company_id,
+      user_id: user._id,
+    }).session(session);
+  }
 
   if (!member) {
     member = new MemberProfile({
-      user_id: userId,
-      company_id: companyId,
+      user_id: user._id,
+      company_id: invitation.company_id,
+      member_email: email,
       is_active: true,
     });
-    applyInvitedMemberName(member, invitedName);
-  } else {
-    member.is_active = true;
-    applyInvitedMemberName(member, invitedName);
+    applyInvitedMemberName(member, invitation.invited_name);
+    await member.save({ session });
+
+    invitation.status = INVITATION_STATUS.ACCEPTED;
+    invitation.accepted_at = new Date();
+    await invitation.save({ session });
+
+    await writeActivityLog({
+      companyId: invitation.company_id,
+      actorUserId: user._id,
+      actorRole: COMPANY_ROLE.MEMBER,
+      actionType: 'invitation.accepted',
+      targetType: 'Invitation',
+      targetId: invitation._id,
+      metadata: {
+        invited_role: INVITATION_ROLE.MEMBER,
+        invited_email: email,
+        invited_name: invitation.invited_name ?? null,
+        member_profile_id: member._id,
+      },
+    });
+
+    return member;
   }
 
+  if (member.is_active && member.user_id) {
+    throw new AppError('This member invitation has already been accepted', 409);
+  }
+
+  const existingLink = await MemberProfile.findOne({ user_id: user._id }).session(session);
+  if (existingLink && existingLink._id.toString() !== member._id.toString()) {
+    throw new AppError(
+      'This account is already linked to another member profile in WorkZen',
+      409
+    );
+  }
+
+  applyInvitedMemberName(member, invitation.invited_name);
+  if (!member.member_email) {
+    member.member_email = email;
+  }
+  member.user_id = user._id;
+  member.is_active = true;
   await member.save({ session });
+
+  invitation.status = INVITATION_STATUS.ACCEPTED;
+  invitation.accepted_at = new Date();
+  await invitation.save({ session });
+
+  await writeActivityLog({
+    companyId: invitation.company_id,
+    actorUserId: user._id,
+    actorRole: COMPANY_ROLE.MEMBER,
+    actionType: 'invitation.accepted',
+    targetType: 'Invitation',
+    targetId: invitation._id,
+    metadata: {
+      invited_role: INVITATION_ROLE.MEMBER,
+      invited_email: email,
+      invited_name: invitation.invited_name ?? null,
+      member_profile_id: member._id,
+    },
+  });
+
   return member;
 }
 
@@ -101,30 +176,7 @@ async function acceptMemberInvitationManual({ rawToken, password }) {
         }
       }
 
-      member = await upsertActiveMemberProfile({
-        userId: user._id,
-        companyId: invitation.company_id,
-        invitedName: invitation.invited_name,
-        session,
-      });
-
-      invitation.status = INVITATION_STATUS.ACCEPTED;
-      invitation.accepted_at = new Date();
-      await invitation.save({ session });
-
-      await writeActivityLog({
-        companyId: invitation.company_id,
-        actorUserId: user._id,
-        actorRole: COMPANY_ROLE.MEMBER,
-        actionType: 'invitation.accepted',
-        targetType: 'Invitation',
-        targetId: invitation._id,
-        metadata: {
-          invited_role: INVITATION_ROLE.MEMBER,
-          invited_email: email,
-          invited_name: invitation.invited_name ?? null,
-        },
-      });
+      member = await linkMemberToUser({ invitation, user, session });
     });
   } finally {
     session.endSession();
@@ -181,30 +233,7 @@ async function acceptMemberInvitationGoogle({ rawToken, idToken }) {
         await user.save({ session });
       }
 
-      member = await upsertActiveMemberProfile({
-        userId: user._id,
-        companyId: invitation.company_id,
-        invitedName: invitation.invited_name,
-        session,
-      });
-
-      invitation.status = INVITATION_STATUS.ACCEPTED;
-      invitation.accepted_at = new Date();
-      await invitation.save({ session });
-
-      await writeActivityLog({
-        companyId: invitation.company_id,
-        actorUserId: user._id,
-        actorRole: COMPANY_ROLE.MEMBER,
-        actionType: 'invitation.accepted',
-        targetType: 'Invitation',
-        targetId: invitation._id,
-        metadata: {
-          invited_role: INVITATION_ROLE.MEMBER,
-          invited_email: email,
-          invited_name: invitation.invited_name ?? null,
-        },
-      });
+      member = await linkMemberToUser({ invitation, user, session });
     });
   } finally {
     session.endSession();

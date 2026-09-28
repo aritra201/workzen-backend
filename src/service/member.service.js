@@ -20,8 +20,8 @@ function serializeMember(member) {
 
   return {
     id: member._id,
-    userId: user._id,
-    email: user.email,
+    userId: user?._id ?? null,
+    email: user?.email ?? member.member_email ?? null,
     name: member.member_name ?? null,
     profilePicture: member.member_profile_picture ?? null,
     companyId: company._id,
@@ -201,16 +201,42 @@ async function assertMemberInviteAllowed(company, invitedEmail) {
     throw new AppError('You cannot invite yourself as a member', 400);
   }
 
+  let existingInCompany = await MemberProfile.findOne({
+    company_id: company._id,
+    member_email: invitedEmail,
+  });
+
+  if (existingInCompany?.is_active && existingInCompany.user_id) {
+    throw new AppError('This email is already an active member of your company', 409);
+  }
+
   const existingUser = await User.findOne({ email: invitedEmail });
   if (existingUser) {
-    const existingMember = await MemberProfile.findOne({
-      company_id: company._id,
-      user_id: existingUser._id,
-    });
-    if (existingMember?.is_active) {
+    const linkedMember = await MemberProfile.findOne({ user_id: existingUser._id });
+    if (
+      linkedMember &&
+      linkedMember.is_active &&
+      linkedMember.company_id.toString() !== company._id.toString()
+    ) {
+      throw new AppError(
+        'This user is already an active member at another company in WorkZen',
+        409
+      );
+    }
+
+    if (!existingInCompany) {
+      existingInCompany = await MemberProfile.findOne({
+        company_id: company._id,
+        user_id: existingUser._id,
+      });
+    }
+
+    if (existingInCompany?.is_active) {
       throw new AppError('This user is already an active member of your company', 409);
     }
   }
+
+  return existingInCompany;
 }
 
 async function revokeSupersededMemberInvites(companyId, invitedEmail) {
@@ -233,6 +259,7 @@ async function createAndEmailMemberInvitation({
   adminUserId,
   invitedEmail,
   memberName,
+  memberProfileId,
   actionType,
 }) {
   const { rawToken, tokenHash } = Invitation.generateToken();
@@ -265,11 +292,13 @@ async function createAndEmailMemberInvitation({
       invited_email: invitedEmail,
       invited_role: INVITATION_ROLE.MEMBER,
       invited_name: memberName,
+      member_profile_id: memberProfileId,
     },
   });
 
   return {
     invitationId: invitation._id,
+    memberProfileId,
     email: invitedEmail,
     memberName,
     expiresAt: invitation.expires_at,
@@ -282,7 +311,7 @@ async function createAndEmailMemberInvitation({
 async function inviteMember({ company, adminUserId, email, memberName }) {
   const invitedEmail = normalizeInviteEmail(email);
   const name = normalizeMemberName(memberName);
-  await assertMemberInviteAllowed(company, invitedEmail);
+  let memberProfile = await assertMemberInviteAllowed(company, invitedEmail);
 
   const pendingInvite = await Invitation.findOne({
     company_id: company._id,
@@ -293,10 +322,32 @@ async function inviteMember({ company, adminUserId, email, memberName }) {
   });
 
   if (pendingInvite) {
-    throw new AppError(
-      'An invitation is already pending for this email — use resend invitation instead',
-      409
-    );
+    const pendingProfile = await MemberProfile.findOne({
+      company_id: company._id,
+      member_email: invitedEmail,
+    });
+
+    if (pendingProfile && !pendingProfile.user_id) {
+      throw new AppError(
+        'An invitation is already pending for this email — use resend invitation instead',
+        409
+      );
+    }
+
+    await revokeSupersededMemberInvites(company._id, invitedEmail);
+  }
+
+  if (!memberProfile) {
+    memberProfile = await MemberProfile.create({
+      company_id: company._id,
+      member_name: name,
+      member_email: invitedEmail,
+      is_active: false,
+    });
+  } else {
+    memberProfile.member_name = name;
+    memberProfile.member_email = invitedEmail;
+    await memberProfile.save();
   }
 
   return createAndEmailMemberInvitation({
@@ -304,6 +355,7 @@ async function inviteMember({ company, adminUserId, email, memberName }) {
     adminUserId,
     invitedEmail,
     memberName: name,
+    memberProfileId: memberProfile._id,
     actionType: 'invitation.sent',
   });
 }
@@ -321,16 +373,23 @@ async function resendMemberInvitation({ company, adminUserId, email }) {
     invited_role: INVITATION_ROLE.MEMBER,
   });
 
-  const existingUser = await User.findOne({ email: invitedEmail });
-  const inactiveMemberForEmail =
-    existingUser &&
-    (await MemberProfile.findOne({
-      company_id: company._id,
-      user_id: existingUser._id,
-      is_active: false,
-    }));
+  let memberProfile = await MemberProfile.findOne({
+    company_id: company._id,
+    member_email: invitedEmail,
+  });
 
-  if (!hadPriorInvite && !inactiveMemberForEmail) {
+  if (!memberProfile) {
+    const existingUser = await User.findOne({ email: invitedEmail });
+    if (existingUser) {
+      memberProfile = await MemberProfile.findOne({
+        company_id: company._id,
+        user_id: existingUser._id,
+        is_active: false,
+      });
+    }
+  }
+
+  if (!hadPriorInvite && !memberProfile) {
     throw new AppError(
       'No prior invitation found for this email — send a new invitation instead',
       404
@@ -339,7 +398,7 @@ async function resendMemberInvitation({ company, adminUserId, email }) {
 
   await revokeSupersededMemberInvites(company._id, invitedEmail);
 
-  let memberName = inactiveMemberForEmail?.member_name?.trim() || '';
+  let memberName = memberProfile?.member_name?.trim() || '';
   if (!memberName) {
     const lastInvite = await Invitation.findOne({
       company_id: company._id,
@@ -358,11 +417,25 @@ async function resendMemberInvitation({ company, adminUserId, email }) {
     );
   }
 
+  if (!memberProfile) {
+    memberProfile = await MemberProfile.create({
+      company_id: company._id,
+      member_name: memberName,
+      member_email: invitedEmail,
+      is_active: false,
+    });
+  } else {
+    memberProfile.member_name = memberName;
+    memberProfile.member_email = invitedEmail;
+    await memberProfile.save();
+  }
+
   return createAndEmailMemberInvitation({
     company,
     adminUserId,
     invitedEmail,
     memberName,
+    memberProfileId: memberProfile._id,
     actionType: 'invitation.resent',
   });
 }
@@ -384,6 +457,10 @@ async function setMemberActive({ company, adminUserId, memberId, isActive }) {
 
   if (!member) {
     throw new AppError('Member not found', 404);
+  }
+
+  if (!member.user_id && isActive) {
+    throw new AppError('Cannot activate a member who has not accepted the invitation yet', 400);
   }
 
   if (member.is_active === isActive) {

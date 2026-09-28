@@ -3,15 +3,23 @@ const { COMPANY_ROLE } = require('../utils/enums');
 
 const memberProfileSchema = new mongoose.Schema(
   {
+    // Linked when the member accepts the invite. Null while invitation is pending.
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      unique: true,
+      sparse: true,
     },
     company_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
+    },
+    member_email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      match: [/^\S+@\S+\.\S+$/, 'Invalid email format'],
     },
     // Fixed, non-configurable view-only role for v1 (FR-021/023).
     role: {
@@ -38,7 +46,15 @@ const memberProfileSchema = new mongoose.Schema(
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );
 
-// A given user has exactly one membership row per company.
-memberProfileSchema.index({ user_id: 1, company_id: 1 }, { unique: true });
+memberProfileSchema.index({ company_id: 1, member_email: 1 }, { unique: true, sparse: true });
+
+memberProfileSchema.pre('validate', function memberProfileRules() {
+  if (this.is_active && !this.user_id) {
+    throw new Error('user_id is required when member is_active is true');
+  }
+  if (!this.user_id && !this.member_email) {
+    throw new Error('member_email is required while invitation is pending');
+  }
+});
 
 module.exports = mongoose.model('MemberProfile', memberProfileSchema);
