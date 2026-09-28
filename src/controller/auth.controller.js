@@ -30,8 +30,11 @@ async function verifyEmail(req, res) {
   }
   parseOtpInput(otp);
 
-  await authService.verifyEmailWithOtp({ email, otp });
-  res.status(200).json({ message: 'Email verified — you can now log in.' });
+  const result = await authService.verifyEmailWithOtp({ email, otp });
+  res.status(200).json({
+    message: 'Email verified — you are signed in.',
+    ...result,
+  });
 }
 
 async function resendVerification(req, res) {

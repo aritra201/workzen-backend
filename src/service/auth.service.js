@@ -112,7 +112,7 @@ async function verifyEmailWithOtp({ email, otp }) {
   user.email_verification_expires = undefined;
   await user.save();
 
-  return { userId: user._id };
+  return await issueAndPersistTokens(user);
 }
 
 async function resendVerificationEmail(email) {
