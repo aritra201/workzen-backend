@@ -187,6 +187,14 @@ function normalizeInviteEmail(email) {
   return invitedEmail;
 }
 
+function normalizeMemberName(name) {
+  const normalized = typeof name === 'string' ? name.trim() : '';
+  if (!normalized) {
+    throw new AppError('memberName is required', 400);
+  }
+  return normalized;
+}
+
 async function assertMemberInviteAllowed(company, invitedEmail) {
   const adminUser = await User.findById(company.admin_user_id);
   if (adminUser.email === invitedEmail) {
@@ -220,13 +228,20 @@ async function revokeSupersededMemberInvites(companyId, invitedEmail) {
   }
 }
 
-async function createAndEmailMemberInvitation({ company, adminUserId, invitedEmail, actionType }) {
+async function createAndEmailMemberInvitation({
+  company,
+  adminUserId,
+  invitedEmail,
+  memberName,
+  actionType,
+}) {
   const { rawToken, tokenHash } = Invitation.generateToken();
 
   const invitation = await Invitation.create({
     company_id: company._id,
     invited_email: invitedEmail,
     invited_role: INVITATION_ROLE.MEMBER,
+    invited_name: memberName,
     token_hash: tokenHash,
     status: INVITATION_STATUS.PENDING,
     expires_at: Invitation.defaultExpiry(),
@@ -236,6 +251,7 @@ async function createAndEmailMemberInvitation({ company, adminUserId, invitedEma
     to: invitedEmail,
     rawToken,
     companyName: company.company_name || 'a WorkZen company',
+    memberName,
   });
 
   await writeActivityLog({
@@ -245,12 +261,17 @@ async function createAndEmailMemberInvitation({ company, adminUserId, invitedEma
     actionType,
     targetType: 'Invitation',
     targetId: invitation._id,
-    metadata: { invited_email: invitedEmail, invited_role: INVITATION_ROLE.MEMBER },
+    metadata: {
+      invited_email: invitedEmail,
+      invited_role: INVITATION_ROLE.MEMBER,
+      invited_name: memberName,
+    },
   });
 
   return {
     invitationId: invitation._id,
     email: invitedEmail,
+    memberName,
     expiresAt: invitation.expires_at,
   };
 }
@@ -258,8 +279,9 @@ async function createAndEmailMemberInvitation({ company, adminUserId, invitedEma
 /**
  * FR-021: invite a view-only member by email.
  */
-async function inviteMember({ company, adminUserId, email }) {
+async function inviteMember({ company, adminUserId, email, memberName }) {
   const invitedEmail = normalizeInviteEmail(email);
+  const name = normalizeMemberName(memberName);
   await assertMemberInviteAllowed(company, invitedEmail);
 
   const pendingInvite = await Invitation.findOne({
@@ -281,6 +303,7 @@ async function inviteMember({ company, adminUserId, email }) {
     company,
     adminUserId,
     invitedEmail,
+    memberName: name,
     actionType: 'invitation.sent',
   });
 }
@@ -316,10 +339,30 @@ async function resendMemberInvitation({ company, adminUserId, email }) {
 
   await revokeSupersededMemberInvites(company._id, invitedEmail);
 
+  let memberName = inactiveMemberForEmail?.member_name?.trim() || '';
+  if (!memberName) {
+    const lastInvite = await Invitation.findOne({
+      company_id: company._id,
+      invited_email: invitedEmail,
+      invited_role: INVITATION_ROLE.MEMBER,
+      invited_name: { $exists: true, $nin: [null, ''] },
+    })
+      .sort({ created_at: -1 })
+      .select('invited_name');
+    memberName = lastInvite?.invited_name?.trim() || '';
+  }
+  if (!memberName) {
+    throw new AppError(
+      'Member name is missing for this invite — send a new invitation with name and email',
+      400
+    );
+  }
+
   return createAndEmailMemberInvitation({
     company,
     adminUserId,
     invitedEmail,
+    memberName,
     actionType: 'invitation.resent',
   });
 }

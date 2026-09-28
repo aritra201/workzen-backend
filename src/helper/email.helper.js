@@ -42,13 +42,17 @@ function sendVerificationOtpEmail({ to, otp }) {
   });
 }
 
-function sendMemberInvitationEmail({ to, rawToken, companyName }) {
+function sendMemberInvitationEmail({ to, rawToken, companyName, memberName }) {
   const link = `${env.clientUrl}/invite/member?token=${rawToken}`;
+  const greeting = memberName
+    ? `<p>Hello ${escapeHtml(memberName)},</p>`
+    : '';
   return sendMail({
     to,
     subject: `You're invited to view ${companyName} on WorkZen`,
     html: `
-      <p>You have been invited to join <strong>${companyName}</strong> on WorkZen as a view-only member.</p>
+      ${greeting}
+      <p>You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as a view-only member.</p>
       <p><a href="${link}">Accept invitation</a></p>
       <p>This link expires in 72 hours. If you did not expect this email, you can ignore it.</p>
     `,

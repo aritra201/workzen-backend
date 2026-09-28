@@ -41,15 +41,16 @@ async function list(req, res) {
 }
 
 async function invite(req, res) {
-  const { email } = req.body;
-  if (!email) {
-    throw new AppError('email is required', 400);
+  const { email, memberName } = req.body;
+  if (!memberName || !email) {
+    throw new AppError('memberName and email are required', 400);
   }
 
   const result = await memberService.inviteMember({
     company: req.company,
     adminUserId: req.user._id,
     email,
+    memberName,
   });
 
   res.status(201).json({

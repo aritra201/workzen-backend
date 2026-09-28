@@ -17,6 +17,7 @@ async function getMemberInvitationPreview(rawToken) {
 
   return {
     email: invitation.invited_email,
+    memberName: invitation.invited_name ?? null,
     role: INVITATION_ROLE.MEMBER,
     companyId: invitation.company_id,
     companyName: company?.company_name ?? null,
@@ -24,7 +25,14 @@ async function getMemberInvitationPreview(rawToken) {
   };
 }
 
-async function upsertActiveMemberProfile({ userId, companyId, session }) {
+function applyInvitedMemberName(member, invitedName) {
+  const name = typeof invitedName === 'string' ? invitedName.trim() : '';
+  if (name && !member.member_name) {
+    member.member_name = name;
+  }
+}
+
+async function upsertActiveMemberProfile({ userId, companyId, invitedName, session }) {
   let member = await MemberProfile.findOne({ user_id: userId, company_id: companyId }).session(
     session
   );
@@ -35,8 +43,10 @@ async function upsertActiveMemberProfile({ userId, companyId, session }) {
       company_id: companyId,
       is_active: true,
     });
+    applyInvitedMemberName(member, invitedName);
   } else {
     member.is_active = true;
+    applyInvitedMemberName(member, invitedName);
   }
 
   await member.save({ session });
@@ -94,6 +104,7 @@ async function acceptMemberInvitationManual({ rawToken, password }) {
       member = await upsertActiveMemberProfile({
         userId: user._id,
         companyId: invitation.company_id,
+        invitedName: invitation.invited_name,
         session,
       });
 
@@ -108,7 +119,11 @@ async function acceptMemberInvitationManual({ rawToken, password }) {
         actionType: 'invitation.accepted',
         targetType: 'Invitation',
         targetId: invitation._id,
-        metadata: { invited_role: INVITATION_ROLE.MEMBER, invited_email: email },
+        metadata: {
+          invited_role: INVITATION_ROLE.MEMBER,
+          invited_email: email,
+          invited_name: invitation.invited_name ?? null,
+        },
       });
     });
   } finally {
@@ -169,6 +184,7 @@ async function acceptMemberInvitationGoogle({ rawToken, idToken }) {
       member = await upsertActiveMemberProfile({
         userId: user._id,
         companyId: invitation.company_id,
+        invitedName: invitation.invited_name,
         session,
       });
 
@@ -183,7 +199,11 @@ async function acceptMemberInvitationGoogle({ rawToken, idToken }) {
         actionType: 'invitation.accepted',
         targetType: 'Invitation',
         targetId: invitation._id,
-        metadata: { invited_role: INVITATION_ROLE.MEMBER, invited_email: email },
+        metadata: {
+          invited_role: INVITATION_ROLE.MEMBER,
+          invited_email: email,
+          invited_name: invitation.invited_name ?? null,
+        },
       });
     });
   } finally {

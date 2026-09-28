@@ -22,7 +22,7 @@ const invitationSchema = new mongoose.Schema(
       enum: Object.values(INVITATION_ROLE),
       required: true,
     },
-    // Required for employee invites (admin pre-sets the name); not used for member invites.
+    // Admin pre-sets the invitee name (employee and member invites).
     invited_name: {
       type: String,
       trim: true,
