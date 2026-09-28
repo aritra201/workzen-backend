@@ -126,6 +126,24 @@ async function me(req, res) {
   });
 }
 
+async function changePassword(req, res) {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    throw new AppError('currentPassword and newPassword are required', 400);
+  }
+  if (newPassword.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400);
+  }
+
+  await authService.changePassword({
+    userId: req.user._id,
+    currentPassword,
+    newPassword,
+  });
+
+  res.status(200).json({ message: 'Password updated successfully.' });
+}
+
 module.exports = {
   register,
   verifyEmail,
@@ -136,5 +154,6 @@ module.exports = {
   refresh,
   forgotPassword,
   resetPassword,
+  changePassword,
   me,
 };

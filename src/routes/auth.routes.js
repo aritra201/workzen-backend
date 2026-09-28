@@ -30,5 +30,6 @@ router.post('/forgot-password', authLimiter, asyncHandler(authController.forgotP
 router.post('/reset-password', authLimiter, asyncHandler(authController.resetPassword));
 
 router.get('/me', requireAuth, asyncHandler(authController.me));
+router.post('/change-password', requireAuth, authLimiter, asyncHandler(authController.changePassword));
 
 module.exports = router;

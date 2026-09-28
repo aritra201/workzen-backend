@@ -295,6 +295,40 @@ async function issueAndPersistTokens(user) {
   return { accessToken, refreshToken, userId: user._id };
 }
 
+/**
+ * Authenticated user changes password (local accounts only).
+ */
+async function changePassword({ userId, currentPassword, newPassword }) {
+  if (!currentPassword) {
+    throw new AppError('currentPassword is required', 400);
+  }
+  if (!newPassword || newPassword.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400);
+  }
+  if (currentPassword === newPassword) {
+    throw new AppError('New password must be different from the current password', 400);
+  }
+
+  const user = await User.findById(userId).select('+password_hash');
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+  if (user.auth_provider !== AUTH_PROVIDER.LOCAL) {
+    throw new AppError('Password change is not available for Google sign-in accounts', 400);
+  }
+
+  const passwordMatches = await user.comparePassword(currentPassword);
+  if (!passwordMatches) {
+    throw new AppError('Current password is incorrect', 401);
+  }
+
+  user.password_hash = newPassword;
+  user.password_reset_token_hash = undefined;
+  user.password_reset_expires = undefined;
+  user.current_refresh_token_hash = undefined;
+  await user.save();
+}
+
 module.exports = {
   registerCompanyManual,
   verifyEmailWithOtp,
@@ -305,5 +339,6 @@ module.exports = {
   refreshTokens,
   forgotPassword,
   resetPasswordWithOtp,
+  changePassword,
   issueAndPersistTokens,
 };
