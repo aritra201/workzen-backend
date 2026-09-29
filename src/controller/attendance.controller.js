@@ -93,9 +93,11 @@ async function listMyAttendance(req, res) {
 
 async function confirmShift(req, res) {
   const shiftKey = shiftKeyFromRequest(req);
+  const { geoLocation } = req.body || {};
   const data = await attendanceService.confirmTodayShift({
     employeeProfile: employeeFromRequest(req),
     shiftKey,
+    geoLocation,
     dateKey: attendanceDateFromRequest(req),
   });
   res.status(200).json(data);

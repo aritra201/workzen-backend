@@ -1,4 +1,4 @@
-﻿const { Attendance, Company, UnlockRequest } = require('../models');
+﻿const { Attendance, Company, UnlockRequest, EmployeeProfile } = require('../models');
 const { SHIFT_KEY, SHIFT_STATUS, COMPANY_ROLE, UNLOCK_REQUEST_STATUS } = require('../utils/enums');
 const { AppError } = require('../utils/AppError');
 const { writeActivityLog } = require('../helper/activityLog.helper');
@@ -43,6 +43,14 @@ function isExtraShiftKey(shiftKey) {
   return EXTRA_SHIFTS.has(shiftKey);
 }
 
+function shiftHasProfileAmount(shift) {
+  return (
+    shift?.amount != null &&
+    !Number.isNaN(Number(shift.amount)) &&
+    Number(shift.amount) > 0
+  );
+}
+
 function resolveRegularShiftStatus(shift) {
   if (!shift?.marked) {
     return SHIFT_STATUS.AWAITING_ATTENDANCE;
@@ -53,10 +61,10 @@ function resolveRegularShiftStatus(shift) {
   ) {
     return shift.status;
   }
-  if (!shiftHasEmployeeSubmission(shift)) {
-    return SHIFT_STATUS.AWAITING_SUBMISSION;
+  if (shiftHasProfileAmount(shift) || shiftHasEmployeeSubmission(shift)) {
+    return SHIFT_STATUS.PENDING_VERIFICATION;
   }
-  return SHIFT_STATUS.PENDING_VERIFICATION;
+  return SHIFT_STATUS.AWAITING_SUBMISSION;
 }
 
 /** Effective status for API/filtering (handles legacy rows stored with stale status). */
@@ -74,10 +82,10 @@ function resolveShiftStatus(shift, shiftKey) {
     ) {
       return shift.status;
     }
-    if (!shiftHasEmployeeSubmission(shift)) {
-      return SHIFT_STATUS.AWAITING_SUBMISSION;
+    if (shiftHasProfileAmount(shift) || shiftHasEmployeeSubmission(shift)) {
+      return SHIFT_STATUS.PENDING_VERIFICATION;
     }
-    return SHIFT_STATUS.PENDING_VERIFICATION;
+    return SHIFT_STATUS.AWAITING_SUBMISSION;
   }
   return resolveRegularShiftStatus(shift);
 }
@@ -401,20 +409,24 @@ function assertShiftReadyForSubmit(shift, shiftKey) {
   }
 }
 
-function assertShiftReadyForEdit(shift, shiftKey) {
+function assertShiftEditableByEmployee(shift, shiftKey) {
   if (isExtraShiftKey(shiftKey)) {
     assertExtraShiftDeclared(shift, shiftKey);
-    if (!shift.marked || !shiftHasEmployeeSubmission(shift)) {
-      throw new AppError('Submit extra shift details before editing', 400);
-    }
-    return;
   }
-  if (!shift.marked) {
-    throw new AppError('Shift is not confirmed for today', 400);
+  if (!shift?.marked) {
+    throw new AppError('Confirm this shift before updating details', 400);
   }
-  if (!shiftHasEmployeeSubmission(shift)) {
-    throw new AppError('Submit shift details before editing', 400);
+  const effectiveStatus = resolveShiftStatus(shift, shiftKey);
+  if (
+    effectiveStatus === SHIFT_STATUS.VERIFIED ||
+    effectiveStatus === SHIFT_STATUS.REJECTED
+  ) {
+    throw new AppError('This shift can no longer be edited', 400);
   }
+}
+
+function assertShiftReadyForEdit(shift, shiftKey) {
+  assertShiftEditableByEmployee(shift, shiftKey);
 }
 
 async function getTodayAttendanceForEmployee(employeeProfile, requestedDateKey) {
@@ -483,7 +495,24 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
  * FR-041/042: confirm day/night shift (irreversible).
  * FR-052/053: confirm extra_day/extra_night only when admin has declared it.
  */
-async function confirmTodayShift({ employeeProfile, shiftKey, dateKey: requestedDateKey }) {
+async function resolveEmployeeDailyShiftAmount(employeeProfile) {
+  const profile = await EmployeeProfile.findById(employeeProfile._id).select('daily_amount');
+  const amount = profile?.daily_amount;
+  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
+    throw new AppError(
+      'Your daily amount is not set — ask your company admin to set it before marking attendance',
+      400
+    );
+  }
+  return Number(amount);
+}
+
+async function confirmTodayShift({
+  employeeProfile,
+  shiftKey,
+  geoLocation,
+  dateKey: requestedDateKey,
+}) {
   assertEmployeeShiftKey(shiftKey);
   const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
     employeeProfile,
@@ -502,8 +531,13 @@ async function confirmTodayShift({ employeeProfile, shiftKey, dateKey: requested
     return serializeAttendance(attendance, dateKey, timezone);
   }
 
+  const dailyAmount = await resolveEmployeeDailyShiftAmount(employeeProfile);
+  const parsedGeo = validateGeoLocation(geoLocation);
+
   shift.marked = true;
-  shift.status = SHIFT_STATUS.AWAITING_SUBMISSION;
+  shift.amount = dailyAmount;
+  shift.geo_location = parsedGeo;
+  shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
 
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
@@ -589,22 +623,27 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   const shift = attendance.shifts[shiftKey];
   assertShiftReadyForSubmit(shift, shiftKey);
 
-  if (!shiftSubmitPayloadHasValue(amount, comment)) {
-    throw new AppError('Provide amount and/or comment to submit', 400);
-  }
-
+  const parsedGeo = validateGeoLocation(geoLocation);
   const parsedAmount = parseOptionalSubmitAmount(amount);
   const parsedComment = parseOptionalSubmitComment(comment);
-  if (parsedAmount === undefined && parsedComment === undefined) {
+  const profileAmountOnShift = shiftHasProfileAmount(shift);
+
+  if (
+    !profileAmountOnShift &&
+    !shiftSubmitPayloadHasValue(amount, comment) &&
+    parsedAmount === undefined &&
+    parsedComment === undefined
+  ) {
     throw new AppError('Provide amount and/or comment to submit', 400);
   }
 
-  const parsedGeo = validateGeoLocation(geoLocation);
-
-  const hadSubmission = shiftHasEmployeeSubmission(shift);
+  const hadSubmission = shiftHasEmployeeSubmission(shift) || profileAmountOnShift;
 
   if (parsedAmount !== undefined) {
     shift.amount = parsedAmount;
+  } else if (!profileAmountOnShift) {
+    const dailyAmount = await resolveEmployeeDailyShiftAmount(employeeProfile);
+    shift.amount = dailyAmount;
   }
   if (parsedComment !== undefined) {
     shift.comment = parsedComment;
@@ -642,8 +681,15 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
 async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comment, dateKey: requestedDateKey }) {
   assertEmployeeShiftKey(shiftKey);
 
-  if (amount === undefined && comment === undefined) {
-    throw new AppError('Provide amount and/or comment to update', 400);
+  if (amount !== undefined) {
+    throw new AppError(
+      'Shift amount is set from your employee profile and cannot be changed here',
+      400
+    );
+  }
+
+  if (comment === undefined) {
+    throw new AppError('Provide comment to update', 400);
   }
 
   const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
@@ -657,20 +703,14 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
   assertShiftReadyForEdit(shift, shiftKey);
 
   const before = { amount: shift.amount, comment: shift.comment };
-  const after = { ...before };
+  const parsedComment = validateComment(comment);
+  const after = { ...before, comment: parsedComment };
 
-  if (amount !== undefined) {
-    after.amount = validateAmount(amount);
-    shift.amount = after.amount;
-  }
-  if (comment !== undefined) {
-    after.comment = validateComment(comment);
-    shift.comment = after.comment;
-  }
-
-  if (before.amount === after.amount && before.comment === after.comment) {
+  if (before.comment === after.comment) {
     return serializeAttendance(attendance, dateKey, timezone);
   }
+
+  shift.comment = parsedComment;
 
   attendance.markModified(`shifts.${shiftKey}`);
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
