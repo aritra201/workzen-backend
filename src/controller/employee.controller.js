@@ -73,9 +73,12 @@ async function listDropdown(req, res) {
 }
 
 async function invite(req, res) {
-  const { employeeName, employeeEmail } = req.body;
+  const { employeeName, employeeEmail, dailyAmount } = req.body;
   if (!employeeName || !employeeEmail) {
     throw new AppError('Employee Name and Employee Email are required', 400);
+  }
+  if (dailyAmount === undefined || dailyAmount === null || dailyAmount === '') {
+    throw new AppError('dailyAmount is required', 400);
   }
 
   const result = await employeeService.inviteEmployee({
@@ -83,6 +86,7 @@ async function invite(req, res) {
     adminUserId: req.user._id,
     employeeName,
     employeeEmail,
+    dailyAmount,
   });
 
   res.status(201).json({
@@ -110,13 +114,33 @@ async function resendInvite(req, res) {
 }
 
 async function updateStatus(req, res) {
-  const { isActive } = req.body;
-  const employee = await employeeService.setEmployeeActive({
-    company: req.company,
-    adminUserId: req.user._id,
-    employeeId: req.params.employeeId,
-    isActive,
-  });
+  const { isActive, dailyAmount } = req.body;
+  const hasStatus = Object.prototype.hasOwnProperty.call(req.body, 'isActive');
+  const hasDailyAmount = Object.prototype.hasOwnProperty.call(req.body, 'dailyAmount');
+
+  if (!hasStatus && !hasDailyAmount) {
+    throw new AppError('isActive or dailyAmount is required', 400);
+  }
+
+  let employee;
+
+  if (hasDailyAmount) {
+    employee = await employeeService.updateEmployeeDailyAmount({
+      company: req.company,
+      adminUserId: req.user._id,
+      employeeId: req.params.employeeId,
+      dailyAmount,
+    });
+  }
+
+  if (hasStatus) {
+    employee = await employeeService.setEmployeeActive({
+      company: req.company,
+      adminUserId: req.user._id,
+      employeeId: req.params.employeeId,
+      isActive,
+    });
+  }
 
   res.status(200).json(employee);
 }

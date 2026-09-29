@@ -49,6 +49,8 @@ const employeeProfileSchema = new mongoose.Schema(
     state: { type: String, trim: true },
     pin_code: { type: String, trim: true },
     full_address: { type: String, trim: true },
+    /** Admin-set default daily wage (INR) for this employee. */
+    daily_amount: { type: Number, min: 0 },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );

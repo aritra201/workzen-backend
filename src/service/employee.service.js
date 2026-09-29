@@ -27,6 +27,7 @@ function serializeEmployee(employee) {
     state: employee.state ?? null,
     pinCode: employee.pin_code ?? null,
     fullAddress: employee.full_address ?? null,
+    dailyAmount: employee.daily_amount ?? null,
     companyId: company._id,
     companyName: company.company_name ?? null,
     role: COMPANY_ROLE.EMPLOYEE,
@@ -51,6 +52,24 @@ function normalizeEmployeeName(name) {
     throw new AppError('employeeName is required', 400);
   }
   return normalized;
+}
+
+function normalizeDailyAmount(value, { required = false, mustBePositive = false } = {}) {
+  if (value === null || value === undefined || value === '') {
+    if (required) {
+      throw new AppError('dailyAmount is required', 400);
+    }
+    return null;
+  }
+
+  const num = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(num) || num < 0) {
+    throw new AppError('dailyAmount must be a non-negative number', 400);
+  }
+  if (mustBePositive && num <= 0) {
+    throw new AppError('dailyAmount must be greater than 0', 400);
+  }
+  return num;
 }
 
 async function assertEmployeeInviteAllowed(company, employeeEmail) {
@@ -154,9 +173,10 @@ async function createAndEmailEmployeeInvitation({
 /**
  * FR-030: create pending EmployeeProfile + send invitation.
  */
-async function inviteEmployee({ company, adminUserId, employeeName, employeeEmail }) {
+async function inviteEmployee({ company, adminUserId, employeeName, employeeEmail, dailyAmount }) {
   const name = normalizeEmployeeName(employeeName);
   const email = normalizeEmployeeEmail(employeeEmail);
+  const amount = normalizeDailyAmount(dailyAmount, { required: true, mustBePositive: true });
 
   let employeeProfile = await assertEmployeeInviteAllowed(company, email);
 
@@ -180,10 +200,12 @@ async function inviteEmployee({ company, adminUserId, employeeName, employeeEmai
       company_id: company._id,
       employee_name: name,
       employee_email: email,
+      daily_amount: amount,
       is_active: false,
     });
   } else {
     employeeProfile.employee_name = name;
+    employeeProfile.daily_amount = amount;
     await employeeProfile.save();
   }
 
@@ -400,6 +422,41 @@ async function setEmployeeActive({ company, adminUserId, employeeId, isActive })
   return serializeEmployee(employee);
 }
 
+async function updateEmployeeDailyAmount({ company, adminUserId, employeeId, dailyAmount }) {
+  const amount = normalizeDailyAmount(dailyAmount, { required: true, mustBePositive: true });
+
+  const employee = await EmployeeProfile.findOne({
+    _id: employeeId,
+    company_id: company._id,
+  }).populate('company_id', 'company_name');
+
+  if (!employee) {
+    throw new AppError('Employee not found', 404);
+  }
+
+  const before = employee.daily_amount ?? null;
+  if (before === amount) {
+    return serializeEmployee(employee);
+  }
+
+  employee.daily_amount = amount;
+  await employee.save();
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: adminUserId,
+    actorRole: COMPANY_ROLE.ADMIN,
+    actionType: 'employee.daily_amount_updated',
+    targetType: 'EmployeeProfile',
+    targetId: employee._id,
+    beforeValue: { daily_amount: before },
+    afterValue: { daily_amount: amount },
+    metadata: { employee_email: employee.employee_email },
+  });
+
+  return serializeEmployee(employee);
+}
+
 async function loadEmployeeForUser(userId, employeeProfileId) {
   if (employeeProfileId) {
     return findActiveEmployeeProfileById(employeeProfileId, userId, true);
@@ -532,6 +589,7 @@ module.exports = {
   inviteEmployee,
   resendEmployeeInvitation,
   setEmployeeActive,
+  updateEmployeeDailyAmount,
   getMyEmployeeProfile,
   updateMyEmployeeProfile,
   uploadMyEmployeeProfilePicture,
