@@ -28,6 +28,9 @@ function serializeEmployee(employee) {
     pinCode: employee.pin_code ?? null,
     fullAddress: employee.full_address ?? null,
     dailyAmount: employee.daily_amount ?? null,
+    dailyHalfAmount:
+      employee.daily_half_amount ??
+      deriveDailyHalfAmount(employee.daily_amount ?? null),
     companyId: company._id,
     companyName: company.company_name ?? null,
     role: COMPANY_ROLE.EMPLOYEE,
@@ -70,6 +73,18 @@ function normalizeDailyAmount(value, { required = false, mustBePositive = false 
     throw new AppError('dailyAmount must be greater than 0', 400);
   }
   return num;
+}
+
+function deriveDailyHalfAmount(dailyAmount) {
+  if (dailyAmount == null) {
+    return null;
+  }
+  return dailyAmount / 2;
+}
+
+function applyEmployeeDailyAmount(employee, dailyAmount) {
+  employee.daily_amount = dailyAmount;
+  employee.daily_half_amount = deriveDailyHalfAmount(dailyAmount);
 }
 
 async function assertEmployeeInviteAllowed(company, employeeEmail) {
@@ -201,11 +216,12 @@ async function inviteEmployee({ company, adminUserId, employeeName, employeeEmai
       employee_name: name,
       employee_email: email,
       daily_amount: amount,
+      daily_half_amount: deriveDailyHalfAmount(amount),
       is_active: false,
     });
   } else {
     employeeProfile.employee_name = name;
-    employeeProfile.daily_amount = amount;
+    applyEmployeeDailyAmount(employeeProfile, amount);
     await employeeProfile.save();
   }
 
@@ -435,11 +451,12 @@ async function updateEmployeeDailyAmount({ company, adminUserId, employeeId, dai
   }
 
   const before = employee.daily_amount ?? null;
+  const beforeHalf = employee.daily_half_amount ?? null;
   if (before === amount) {
     return serializeEmployee(employee);
   }
 
-  employee.daily_amount = amount;
+  applyEmployeeDailyAmount(employee, amount);
   await employee.save();
 
   await writeActivityLog({
@@ -449,8 +466,11 @@ async function updateEmployeeDailyAmount({ company, adminUserId, employeeId, dai
     actionType: 'employee.daily_amount_updated',
     targetType: 'EmployeeProfile',
     targetId: employee._id,
-    beforeValue: { daily_amount: before },
-    afterValue: { daily_amount: amount },
+    beforeValue: { daily_amount: before, daily_half_amount: beforeHalf },
+    afterValue: {
+      daily_amount: employee.daily_amount,
+      daily_half_amount: employee.daily_half_amount,
+    },
     metadata: { employee_email: employee.employee_email },
   });
 

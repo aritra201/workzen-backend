@@ -51,6 +51,8 @@ const employeeProfileSchema = new mongoose.Schema(
     full_address: { type: String, trim: true },
     /** Admin-set default daily wage (INR) for this employee. */
     daily_amount: { type: Number, min: 0 },
+    /** Half of `daily_amount` (set automatically when daily amount is saved). */
+    daily_half_amount: { type: Number, min: 0 },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );
