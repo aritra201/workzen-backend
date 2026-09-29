@@ -48,10 +48,7 @@ function parseStatusFilter(status) {
   return value;
 }
 
-function shiftIsVisibleToCompany(shift, shiftKey) {
-  if (isExtraShiftKey(shiftKey)) {
-    return Boolean(shift?.declared);
-  }
+function shiftIsVisibleToCompany(shift) {
   return Boolean(shift?.marked);
 }
 
@@ -59,7 +56,7 @@ function shiftMatchesStatusFilter(shift, shiftKey, statusFilter) {
   if (!statusFilter) {
     return true;
   }
-  if (!shiftIsVisibleToCompany(shift, shiftKey)) {
+  if (!shiftIsVisibleToCompany(shift)) {
     return false;
   }
   return resolveShiftStatus(shift, shiftKey) === statusFilter;
@@ -126,38 +123,19 @@ function serializeAdminRegularShift(shift, shiftKey) {
 }
 
 function serializeAdminExtraShift(shift, shiftKey) {
-  if (!shift?.declared) {
+  return serializeAdminRegularShift(shift, shiftKey);
+}
+
+function summarizeShiftForList(shift, shiftKey) {
+  if (!shiftIsVisibleToCompany(shift)) {
     return null;
   }
   return {
     shiftKey,
-    declared: true,
-    declaredBy: shift.declared_by ?? null,
-    declaredAt: shift.declared_at ?? null,
-    marked: Boolean(shift.marked),
-    amount: shift.amount ?? null,
-    comment: shift.comment ?? null,
-    workPictures: shift.work_picture ?? [],
-    geoLocation: shift.geo_location ?? null,
-    status: resolveShiftStatus(shift, shiftKey),
-    verifiedBy: shift.verified_by ?? null,
-    verifiedAt: shift.verified_at ?? null,
-  };
-}
-
-function summarizeShiftForList(shift, shiftKey) {
-  if (!shiftIsVisibleToCompany(shift, shiftKey)) {
-    return null;
-  }
-  const base = {
-    shiftKey,
     status: resolveShiftStatus(shift, shiftKey),
     marked: Boolean(shift?.marked),
+    amount: shift?.amount ?? null,
   };
-  if (isExtraShiftKey(shiftKey)) {
-    return { ...base, declared: true, amount: shift?.amount ?? null };
-  }
-  return { ...base, amount: shift?.amount ?? null };
 }
 
 function shiftKeyToResponseKey(shiftKey) {
@@ -171,7 +149,7 @@ function shiftKeyToResponseKey(shiftKey) {
 }
 
 function serializeEmployeeShift(attendance, shiftKey) {
-  if (!shiftIsVisibleToCompany(attendance.shifts[shiftKey], shiftKey)) {
+  if (!shiftIsVisibleToCompany(attendance.shifts[shiftKey])) {
     return null;
   }
   const body = isExtraShiftKey(shiftKey)
@@ -297,11 +275,6 @@ async function loadEmployeesForCompanyFilter(companyId, employeeIdRaw) {
 
 function assertShiftReviewable(shift, shiftKey) {
   assertEmployeeShiftKey(shiftKey);
-  if (isExtraShiftKey(shiftKey)) {
-    if (!shift?.declared) {
-      throw new AppError('Extra shift is not declared', 400);
-    }
-  }
   if (!shift?.marked) {
     throw new AppError('Shift is not confirmed', 400);
   }

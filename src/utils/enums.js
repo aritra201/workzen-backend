@@ -36,9 +36,9 @@ const SHIFT_KEY = Object.freeze({
 });
 
 const SHIFT_STATUS = Object.freeze({
-  /** Extra shift declared by admin; employee has not confirmed yet. */
+  /** Shift not confirmed yet. */
   AWAITING_ATTENDANCE: 'awaiting_attendance',
-  /** Employee confirmed extra shift; amount/comment not submitted yet. */
+  /** Confirmed; amount/comment not submitted yet (legacy rows). */
   AWAITING_SUBMISSION: 'awaiting_submission',
   PENDING_VERIFICATION: 'pending_verification',
   VERIFIED: 'verified',

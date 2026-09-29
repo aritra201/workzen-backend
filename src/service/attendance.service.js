@@ -69,35 +69,7 @@ function resolveRegularShiftStatus(shift) {
 
 /** Effective status for API/filtering (handles legacy rows stored with stale status). */
 function resolveShiftStatus(shift, shiftKey) {
-  if (isExtraShiftKey(shiftKey)) {
-    if (!shift?.declared) {
-      return shift?.status || SHIFT_STATUS.AWAITING_ATTENDANCE;
-    }
-    if (!shift.marked) {
-      return SHIFT_STATUS.AWAITING_ATTENDANCE;
-    }
-    if (
-      shift.status === SHIFT_STATUS.VERIFIED ||
-      shift.status === SHIFT_STATUS.REJECTED
-    ) {
-      return shift.status;
-    }
-    if (shiftHasProfileAmount(shift) || shiftHasEmployeeSubmission(shift)) {
-      return SHIFT_STATUS.PENDING_VERIFICATION;
-    }
-    return SHIFT_STATUS.AWAITING_SUBMISSION;
-  }
   return resolveRegularShiftStatus(shift);
-}
-
-/** FR-053: employee cannot fill undeclared extra shifts. */
-function assertExtraShiftDeclared(shift, shiftKey) {
-  if (!shift?.declared) {
-    throw new AppError(
-      `Extra shift "${shiftKey}" is not available — ask your admin to declare it first`,
-      403
-    );
-  }
 }
 
 const PAST_DATE_BLOCKED_MESSAGE =
@@ -324,22 +296,9 @@ function serializeRegularShift(shift, shiftKey) {
   };
 }
 
-/** FR-053: omit extra shift data until admin has declared it. */
+/** Extra day/night use the same employee-facing shape as regular shifts. */
 function serializeExtraShift(shift, shiftKey) {
-  if (!shift?.declared) {
-    return null;
-  }
-  const key = shiftKey || SHIFT_KEY.EXTRA_DAY;
-  return {
-    declared: true,
-    declaredAt: shift.declared_at ?? null,
-    marked: Boolean(shift.marked),
-    amount: shift.amount ?? null,
-    comment: shift.comment ?? null,
-    workPictures: shift.work_picture ?? [],
-    geoLocation: shift.geo_location ?? null,
-    status: resolveShiftStatus(shift, key),
-  };
+  return serializeRegularShift(shift, shiftKey);
 }
 
 function serializeAttendanceRecordForEmployeeList(attendance, dateKey, timezone) {
@@ -384,12 +343,7 @@ function serializeAttendance(attendance, todayKey, timezone) {
 }
 
 function assertShiftReadyForUpload(shift, shiftKey) {
-  if (isExtraShiftKey(shiftKey)) {
-    assertExtraShiftDeclared(shift, shiftKey);
-    if (!shift.marked) {
-      throw new AppError('Confirm this extra shift before uploading work pictures', 400);
-    }
-  } else if (!shift.marked) {
+  if (!shift.marked) {
     throw new AppError('Confirm this shift before uploading work pictures', 400);
   }
 
@@ -403,22 +357,12 @@ function assertShiftReadyForUpload(shift, shiftKey) {
 }
 
 function assertShiftReadyForSubmit(shift, shiftKey) {
-  if (isExtraShiftKey(shiftKey)) {
-    assertExtraShiftDeclared(shift, shiftKey);
-    if (!shift.marked) {
-      throw new AppError('Confirm this extra shift before submitting details', 400);
-    }
-    return;
-  }
   if (!shift.marked) {
     throw new AppError('Confirm this shift before submitting details', 400);
   }
 }
 
 function assertShiftEditableByEmployee(shift, shiftKey) {
-  if (isExtraShiftKey(shiftKey)) {
-    assertExtraShiftDeclared(shift, shiftKey);
-  }
   if (!shift?.marked) {
     throw new AppError('Confirm this shift before updating details', 400);
   }
@@ -498,8 +442,7 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
 }
 
 /**
- * FR-041/042: confirm day/night shift (irreversible).
- * FR-052/053: confirm extra_day/extra_night only when admin has declared it.
+ * FR-041/042: confirm shift (irreversible) — day, night, extra day, extra night.
  */
 async function resolveEmployeeDailyShiftAmount(employeeProfile) {
   const profile = await EmployeeProfile.findById(employeeProfile._id).select('daily_amount');
@@ -528,10 +471,6 @@ async function confirmTodayShift({
 
   const beforeMarks = snapshotShiftMarks(attendance);
   const shift = attendance.shifts[shiftKey];
-
-  if (isExtraShiftKey(shiftKey)) {
-    assertExtraShiftDeclared(shift, shiftKey);
-  }
 
   if (shift.marked) {
     return serializeAttendance(attendance, dateKey, timezone);

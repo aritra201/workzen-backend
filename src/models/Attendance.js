@@ -28,9 +28,8 @@ const shiftSchema = new mongoose.Schema(
   { _id: false, versionKey: false }
 );
 
-// Extra shifts carry the same fields as a regular shift, plus who declared it
-// and when (FR-050/051) — the employee cannot create this sub-document itself,
-// only fill in amount/comment/photos once `declared_by` is set.
+// Extra day/night: same workflow as regular shifts (employee confirms when worked).
+// `declared*` fields remain for legacy rows from the old admin-declare flow.
 const extraShiftSchema = new mongoose.Schema(
   {
     declared: { type: Boolean, required: true, default: false },
