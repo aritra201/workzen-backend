@@ -389,10 +389,16 @@ function assertShiftReadyForUpload(shift, shiftKey) {
     if (!shift.marked) {
       throw new AppError('Confirm this extra shift before uploading work pictures', 400);
     }
-    return;
-  }
-  if (!shift.marked) {
+  } else if (!shift.marked) {
     throw new AppError('Confirm this shift before uploading work pictures', 400);
+  }
+
+  const effectiveStatus = resolveShiftStatus(shift, shiftKey);
+  if (
+    effectiveStatus === SHIFT_STATUS.VERIFIED ||
+    effectiveStatus === SHIFT_STATUS.REJECTED
+  ) {
+    throw new AppError('This shift can no longer be edited', 400);
   }
 }
 
