@@ -312,7 +312,6 @@ function serializeHalfShiftEntry(shift, slot) {
       slot,
       shiftKey,
       marked: false,
-      status: SHIFT_STATUS.AWAITING_ATTENDANCE,
     };
   }
   return { slot, shiftKey, ...body };
@@ -335,7 +334,6 @@ function serializeHalfShiftsForEmployee(attendance) {
       slot: nextSlot,
       shiftKey: halfShiftKeyFromSlot(nextSlot),
       marked: false,
-      status: SHIFT_STATUS.AWAITING_ATTENDANCE,
     });
   }
   return out;
