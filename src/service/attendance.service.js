@@ -12,15 +12,25 @@ const {
 const { resolveDateRangeFilter, parseRequiredDateKey } = require('../helper/dateRangeFilter.helper');
 const { isUnlockWindowActive } = require('../helper/unlockWindow.helper');
 const {
+  MAX_HALF_SHIFTS,
+  assertEmployeeShiftKey,
+  isExtraShiftKey,
+  isHalfShiftKey,
+  parseHalfShiftSlot,
+  halfShiftKeyFromSlot,
+  accessEmployeeShift,
+  snapshotHalfShiftMarks,
+  assertHalfShiftMarksNotReverted,
+  assertSequentialHalfShiftConfirm,
+  listMarkedHalfShiftEntries,
+} = require('../helper/employeeShiftKeys.helper');
+const {
   getCompanyTodayDateKey,
   dateKeyToUtcDate,
   utcDateToDateKey,
   isCompanyLocalLockCutoffReached,
 } = require('../utils/timezone.helper');
 
-const REGULAR_SHIFTS = new Set([SHIFT_KEY.DAY, SHIFT_KEY.NIGHT]);
-const EXTRA_SHIFTS = new Set([SHIFT_KEY.EXTRA_DAY, SHIFT_KEY.EXTRA_NIGHT]);
-const ALL_EMPLOYEE_SHIFTS = new Set([...REGULAR_SHIFTS, ...EXTRA_SHIFTS]);
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_DAYS = 30;
@@ -31,17 +41,8 @@ const EMPLOYEE_MARKED_SHIFT_OR = [
   { 'shifts.night.marked': true },
   { 'shifts.extra_day.marked': true },
   { 'shifts.extra_night.marked': true },
+  { 'shifts.half_shifts.marked': true },
 ];
-
-function assertEmployeeShiftKey(shiftKey) {
-  if (!ALL_EMPLOYEE_SHIFTS.has(shiftKey)) {
-    throw new AppError('Shift-Key must be day, night, extra_day, or extra_night', 400);
-  }
-}
-
-function isExtraShiftKey(shiftKey) {
-  return EXTRA_SHIFTS.has(shiftKey);
-}
 
 function shiftHasProfileAmount(shift) {
   return (
@@ -259,6 +260,7 @@ function snapshotShiftMarks(attendance) {
     night: Boolean(attendance.shifts?.night?.marked),
     extra_day: Boolean(attendance.shifts?.extra_day?.marked),
     extra_night: Boolean(attendance.shifts?.extra_night?.marked),
+    half_shifts: snapshotHalfShiftMarks(attendance),
   };
 }
 
@@ -274,6 +276,7 @@ function assertShiftMarksNotReverted(attendance, beforeMarks) {
       throw new AppError('Confirmed shifts cannot be unchecked', 400);
     }
   }
+  assertHalfShiftMarksNotReverted(attendance, beforeMarks.half_shifts || []);
 }
 
 async function saveAttendanceWithShiftGuards(attendance, beforeMarks) {
@@ -301,6 +304,43 @@ function serializeExtraShift(shift, shiftKey) {
   return serializeRegularShift(shift, shiftKey);
 }
 
+function serializeHalfShiftEntry(shift, slot) {
+  const shiftKey = halfShiftKeyFromSlot(slot);
+  const body = serializeRegularShift(shift, shiftKey);
+  if (!body) {
+    return {
+      slot,
+      shiftKey,
+      marked: false,
+      status: SHIFT_STATUS.AWAITING_ATTENDANCE,
+    };
+  }
+  return { slot, shiftKey, ...body };
+}
+
+/** Marked half shifts plus the next open slot (if any). */
+function serializeHalfShiftsForEmployee(attendance) {
+  const arr = attendance.shifts?.half_shifts || [];
+  const out = [];
+  let markedCount = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i]?.marked) {
+      markedCount += 1;
+      out.push(serializeHalfShiftEntry(arr[i], i + 1));
+    }
+  }
+  const nextSlot = markedCount + 1;
+  if (nextSlot <= MAX_HALF_SHIFTS) {
+    out.push({
+      slot: nextSlot,
+      shiftKey: halfShiftKeyFromSlot(nextSlot),
+      marked: false,
+      status: SHIFT_STATUS.AWAITING_ATTENDANCE,
+    });
+  }
+  return out;
+}
+
 function serializeAttendanceRecordForEmployeeList(attendance, dateKey, timezone) {
   const record = serializeAttendanceRecord(attendance, dateKey, timezone);
   if (record.shifts.extraDay && !record.shifts.extraDay.marked) {
@@ -308,6 +348,9 @@ function serializeAttendanceRecordForEmployeeList(attendance, dateKey, timezone)
   }
   if (record.shifts.extraNight && !record.shifts.extraNight.marked) {
     record.shifts.extraNight = null;
+  }
+  if (Array.isArray(record.shifts.halfShifts)) {
+    record.shifts.halfShifts = record.shifts.halfShifts.filter((h) => h?.marked);
   }
   return record;
 }
@@ -332,6 +375,7 @@ function serializeAttendanceRecord(attendance, dateKey, timezone) {
       night: serializeRegularShift(attendance.shifts.night, SHIFT_KEY.NIGHT),
       extraDay: serializeExtraShift(attendance.shifts.extra_day, SHIFT_KEY.EXTRA_DAY),
       extraNight: serializeExtraShift(attendance.shifts.extra_night, SHIFT_KEY.EXTRA_NIGHT),
+      halfShifts: serializeHalfShiftsForEmployee(attendance),
     },
     createdAt: attendance.created_at,
     updatedAt: attendance.updated_at,
@@ -456,6 +500,23 @@ async function resolveEmployeeDailyShiftAmount(employeeProfile) {
   return Number(amount);
 }
 
+async function resolveEmployeeDailyHalfShiftAmount(employeeProfile) {
+  const profile = await EmployeeProfile.findById(employeeProfile._id).select(
+    'daily_half_amount daily_amount'
+  );
+  let amount = profile?.daily_half_amount;
+  if (amount == null && profile?.daily_amount != null) {
+    amount = Number(profile.daily_amount) / 2;
+  }
+  if (amount == null || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
+    throw new AppError(
+      'Your half-day amount is not set — ask your company admin to set your daily amount before marking a half shift',
+      400
+    );
+  }
+  return Number(amount);
+}
+
 async function confirmTodayShift({
   employeeProfile,
   shiftKey,
@@ -470,26 +531,35 @@ async function confirmTodayShift({
   );
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const halfSlot = parseHalfShiftSlot(shiftKey);
+  if (halfSlot) {
+    assertSequentialHalfShiftConfirm(attendance, halfSlot);
+  }
+
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
 
   if (shift.marked) {
     return serializeAttendance(attendance, dateKey, timezone);
   }
 
-  const dailyAmount = await resolveEmployeeDailyShiftAmount(employeeProfile);
+  const shiftAmount = halfSlot
+    ? await resolveEmployeeDailyHalfShiftAmount(employeeProfile)
+    : await resolveEmployeeDailyShiftAmount(employeeProfile);
   const parsedGeo = validateGeoLocation(geoLocation);
 
   shift.marked = true;
-  shift.amount = dailyAmount;
+  shift.amount = shiftAmount;
   shift.geo_location = parsedGeo;
   shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
-  const actionType = isExtraShiftKey(shiftKey)
-    ? 'extra_shift.confirmed'
-    : 'attendance.shift_confirmed';
+  const actionType = halfSlot
+    ? 'half_shift.confirmed'
+    : isExtraShiftKey(shiftKey)
+      ? 'extra_shift.confirmed'
+      : 'attendance.shift_confirmed';
 
   await writeActivityLog({
     companyId: company._id,
@@ -565,7 +635,7 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   );
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReadyForSubmit(shift, shiftKey);
 
   const parsedGeo = validateGeoLocation(geoLocation);
@@ -587,7 +657,9 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   if (parsedAmount !== undefined) {
     shift.amount = parsedAmount;
   } else if (!profileAmountOnShift) {
-    const dailyAmount = await resolveEmployeeDailyShiftAmount(employeeProfile);
+    const dailyAmount = isHalfShiftKey(shiftKey)
+      ? await resolveEmployeeDailyHalfShiftAmount(employeeProfile)
+      : await resolveEmployeeDailyShiftAmount(employeeProfile);
     shift.amount = dailyAmount;
   }
   if (parsedComment !== undefined) {
@@ -596,16 +668,20 @@ async function submitTodayShift({ employeeProfile, shiftKey, amount, comment, ge
   shift.geo_location = parsedGeo;
   shift.status = SHIFT_STATUS.PENDING_VERIFICATION;
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
-  const actionType = isExtraShiftKey(shiftKey)
+  const actionType = isHalfShiftKey(shiftKey)
     ? hadSubmission
-      ? 'extra_shift.resubmitted'
-      : 'extra_shift.submitted'
-    : hadSubmission
-      ? 'attendance.shift_resubmitted'
-      : 'attendance.shift_submitted';
+      ? 'half_shift.resubmitted'
+      : 'half_shift.submitted'
+    : isExtraShiftKey(shiftKey)
+      ? hadSubmission
+        ? 'extra_shift.resubmitted'
+        : 'extra_shift.submitted'
+      : hadSubmission
+        ? 'attendance.shift_resubmitted'
+        : 'attendance.shift_submitted';
 
   await writeActivityLog({
     companyId: company._id,
@@ -644,7 +720,7 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
   );
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReadyForEdit(shift, shiftKey);
 
   const before = { amount: shift.amount, comment: shift.comment };
@@ -657,12 +733,14 @@ async function updateTodayShiftDetails({ employeeProfile, shiftKey, amount, comm
 
   shift.comment = parsedComment;
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
-  const actionType = isExtraShiftKey(shiftKey)
-    ? 'extra_shift.amount_edited'
-    : 'attendance.amount_edited';
+  const actionType = isHalfShiftKey(shiftKey)
+    ? 'half_shift.amount_edited'
+    : isExtraShiftKey(shiftKey)
+      ? 'extra_shift.amount_edited'
+      : 'attendance.amount_edited';
 
   await writeActivityLog({
     companyId: company._id,
@@ -712,7 +790,7 @@ async function removeWorkPicturesFromShift({
   }
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReadyForUpload(shift, shiftKey);
 
   assertUrlsBelongToShift(shift, urlsToRemove, shiftKey);
@@ -722,7 +800,7 @@ async function removeWorkPicturesFromShift({
   const removeSet = new Set(urlsToRemove);
   shift.work_picture = getShiftWorkPictureUrls(shift).filter((url) => !removeSet.has(url));
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
   await writeActivityLog({
@@ -755,9 +833,11 @@ async function deleteTodayWorkPictures({ employeeProfile, shiftKey, urls, dateKe
     { writable: true }
   );
 
-  const actionType = isExtraShiftKey(shiftKey)
-    ? 'extra_shift.work_pictures_removed'
-    : 'attendance.work_pictures_removed';
+  const actionType = isHalfShiftKey(shiftKey)
+    ? 'half_shift.work_pictures_removed'
+    : isExtraShiftKey(shiftKey)
+      ? 'extra_shift.work_pictures_removed'
+      : 'attendance.work_pictures_removed';
 
   return removeWorkPicturesFromShift({
     company,
@@ -797,7 +877,7 @@ async function replaceTodayWorkPictures({
   );
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReadyForUpload(shift, shiftKey);
 
   if (!shift.work_picture) {
@@ -835,12 +915,14 @@ async function replaceTodayWorkPictures({
     }
   }
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
-  const actionType = isExtraShiftKey(shiftKey)
-    ? 'extra_shift.work_pictures_replaced'
-    : 'attendance.work_pictures_replaced';
+  const actionType = isHalfShiftKey(shiftKey)
+    ? 'half_shift.work_pictures_replaced'
+    : isExtraShiftKey(shiftKey)
+      ? 'extra_shift.work_pictures_replaced'
+      : 'attendance.work_pictures_replaced';
 
   await writeActivityLog({
     companyId: company._id,
@@ -878,7 +960,7 @@ async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files, dateK
   );
 
   const beforeMarks = snapshotShiftMarks(attendance);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReadyForUpload(shift, shiftKey);
 
   if (!shift.work_picture) {
@@ -908,7 +990,7 @@ async function uploadTodayWorkPictures({ employeeProfile, shiftKey, files, dateK
     }
   }
 
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await saveAttendanceWithShiftGuards(attendance, beforeMarks);
 
   return serializeAttendance(attendance, dateKey, timezone);
@@ -929,5 +1011,8 @@ module.exports = {
   replaceTodayWorkPictures,
   assertEmployeeShiftKey,
   isExtraShiftKey,
+  isHalfShiftKey,
   resolveShiftStatus,
+  serializeHalfShiftsForEmployee,
+  listMarkedHalfShiftEntries,
 };

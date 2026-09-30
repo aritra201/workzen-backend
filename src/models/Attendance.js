@@ -79,6 +79,17 @@ const attendanceSchema = new mongoose.Schema(
       night: { type: shiftSchema, default: () => ({}) },
       extra_day: { type: extraShiftSchema, default: () => ({}) },
       extra_night: { type: extraShiftSchema, default: () => ({}) },
+      /** Up to 4 sequential half shifts per day (slot 1 → 4). */
+      half_shifts: {
+        type: [shiftSchema],
+        default: () => [],
+        validate: {
+          validator(arr) {
+            return !arr || arr.length <= 4;
+          },
+          message: 'At most 4 half shifts per attendance day',
+        },
+      },
     },
     // Set when this record exists because of an approved UnlockRequest for a
     // past date (FR-063), rather than same-day entry.

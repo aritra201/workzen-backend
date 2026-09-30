@@ -1,14 +1,9 @@
 const attendanceVerificationService = require('../service/attendanceVerification.service');
-const { SHIFT_KEY } = require('../utils/enums');
+const { ALL_EMPLOYEE_SHIFT_KEYS } = require('../helper/employeeShiftKeys.helper');
 const { AppError } = require('../utils/AppError');
 const { parseObjectId } = require('../utils/objectId.helper');
 
-const ALL_SHIFT_KEYS = new Set([
-  SHIFT_KEY.DAY,
-  SHIFT_KEY.NIGHT,
-  SHIFT_KEY.EXTRA_DAY,
-  SHIFT_KEY.EXTRA_NIGHT,
-]);
+const ALL_SHIFT_KEYS = ALL_EMPLOYEE_SHIFT_KEYS;
 
 function attendanceIdFromQuery(req) {
   const raw = req.query.attendanceId ?? req.query.attendance_id;
@@ -34,13 +29,16 @@ function shiftKeyFromBodyOrHeader(req) {
     req.headers['x-shift-key'];
   if (!raw) {
     throw new AppError(
-      'shiftKey is required in the request body (day, night, extra_day, or extra_night)',
+      'shiftKey is required in the request body (day, night, extra_day, extra_night, or half_shift_1-half_shift_4)',
       400
     );
   }
   const shiftKey = String(raw).trim().toLowerCase();
   if (!ALL_SHIFT_KEYS.has(shiftKey)) {
-    throw new AppError('shiftKey must be day, night, extra_day, or extra_night', 400);
+    throw new AppError(
+      'shiftKey must be day, night, extra_day, extra_night, or half_shift_1 through half_shift_4',
+      400
+    );
   }
   return shiftKey;
 }
@@ -52,7 +50,10 @@ function optionalShiftKeyFromQuery(req) {
   }
   const shiftKey = String(raw).trim().toLowerCase();
   if (!ALL_SHIFT_KEYS.has(shiftKey)) {
-    throw new AppError('shiftKey must be day, night, extra_day, or extra_night', 400);
+    throw new AppError(
+      'shiftKey must be day, night, extra_day, extra_night, or half_shift_1 through half_shift_4',
+      400
+    );
   }
   return shiftKey;
 }

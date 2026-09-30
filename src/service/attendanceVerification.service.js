@@ -27,8 +27,11 @@ const {
   serializeExtraShift,
   resolveShiftStatus,
 } = require('./attendance.service');
-
-const SHIFT_KEYS = Object.values(SHIFT_KEY);
+const {
+  FIXED_SHIFT_KEYS,
+  accessEmployeeShift,
+  listMarkedHalfShiftEntries,
+} = require('../helper/employeeShiftKeys.helper');
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_DAYS = 30;
@@ -66,8 +69,15 @@ function attendanceMatchesStatusFilter(attendance, statusFilter) {
   if (!statusFilter) {
     return true;
   }
-  return SHIFT_KEYS.some((key) =>
-    shiftMatchesStatusFilter(attendance.shifts[key], key, statusFilter)
+  if (
+    FIXED_SHIFT_KEYS.some((key) =>
+      shiftMatchesStatusFilter(attendance.shifts[key], key, statusFilter)
+    )
+  ) {
+    return true;
+  }
+  return listMarkedHalfShiftEntries(attendance).some(({ shiftKey, shift }) =>
+    shiftMatchesStatusFilter(shift, shiftKey, statusFilter)
   );
 }
 
@@ -149,12 +159,13 @@ function shiftKeyToResponseKey(shiftKey) {
 }
 
 function serializeEmployeeShift(attendance, shiftKey) {
-  if (!shiftIsVisibleToCompany(attendance.shifts[shiftKey])) {
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
+  if (!shiftIsVisibleToCompany(shift)) {
     return null;
   }
   const body = isExtraShiftKey(shiftKey)
-    ? serializeExtraShift(attendance.shifts[shiftKey], shiftKey)
-    : serializeRegularShift(attendance.shifts[shiftKey], shiftKey);
+    ? serializeExtraShift(shift, shiftKey)
+    : serializeRegularShift(shift, shiftKey);
   if (!body) {
     return null;
   }
@@ -167,11 +178,14 @@ function employeeShiftsWithKeys(attendance) {
     night: serializeEmployeeShift(attendance, SHIFT_KEY.NIGHT),
     extraDay: serializeEmployeeShift(attendance, SHIFT_KEY.EXTRA_DAY),
     extraNight: serializeEmployeeShift(attendance, SHIFT_KEY.EXTRA_NIGHT),
+    halfShifts: listMarkedHalfShiftEntries(attendance)
+      .map(({ shiftKey }) => serializeEmployeeShift(attendance, shiftKey))
+      .filter(Boolean),
   };
 }
 
 function serializeAdminShift(attendance, shiftKey) {
-  const shift = attendance.shifts[shiftKey];
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
   if (isExtraShiftKey(shiftKey)) {
     return serializeAdminExtraShift(shift, shiftKey);
   }
@@ -180,8 +194,9 @@ function serializeAdminShift(attendance, shiftKey) {
 
 async function resolveCommentThreadForShift(attendance, shiftKey, threadMap) {
   let thread = threadMap.get(shiftKey);
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
   if (
-    attendance.shifts[shiftKey]?.comment &&
+    shift?.comment &&
     (!thread || thread.messages.length === 0)
   ) {
     try {
@@ -235,6 +250,11 @@ function serializeListItem(attendance, employee, timezone) {
       night: summarizeShiftForList(attendance.shifts.night, SHIFT_KEY.NIGHT),
       extraDay: summarizeShiftForList(attendance.shifts.extra_day, SHIFT_KEY.EXTRA_DAY),
       extraNight: summarizeShiftForList(attendance.shifts.extra_night, SHIFT_KEY.EXTRA_NIGHT),
+      halfShifts: listMarkedHalfShiftEntries(attendance).map(({ slot, shiftKey, shift }) => ({
+        slot,
+        shiftKey,
+        ...summarizeShiftForList(shift, shiftKey),
+      })),
     },
     updatedAt: attendance.updated_at,
   };
@@ -295,7 +315,7 @@ async function resolveEmployeeAuthorUserId(employeeProfileId) {
  * Ensures thread exists with message 0 mirroring the employee shift comment (FR-073).
  */
 async function ensureCommentThreadBootstrapped(attendance, shiftKey) {
-  const shift = attendance.shifts[shiftKey];
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
   const commentText = typeof shift?.comment === 'string' ? shift.comment.trim() : '';
   if (!commentText) {
     throw new AppError('Shift has no employee comment to thread', 400);
@@ -440,7 +460,8 @@ async function getCompanyAttendanceDetail(company, attendanceId, { shiftKey } = 
   const threadMap = await loadThreadsForAttendance(attendance._id);
 
   if (shiftKey) {
-    const hasShift = shiftIsVisibleToCompany(attendance.shifts[shiftKey], shiftKey);
+    const { shift } = accessEmployeeShift(attendance, shiftKey);
+    const hasShift = shiftIsVisibleToCompany(shift);
     return {
       ...base,
       shiftKey,
@@ -456,16 +477,18 @@ async function getCompanyAttendanceDetail(company, attendanceId, { shiftKey } = 
     night: null,
     extraDay: null,
     extraNight: null,
+    halfShifts: [],
   };
   const commentThreads = {
     day: null,
     night: null,
     extraDay: null,
     extraNight: null,
+    halfShifts: [],
   };
 
-  for (const key of SHIFT_KEYS) {
-    if (!shiftIsVisibleToCompany(attendance.shifts[key], key)) {
+  for (const key of FIXED_SHIFT_KEYS) {
+    if (!shiftIsVisibleToCompany(attendance.shifts[key])) {
       continue;
     }
     const responseKey = shiftKeyToResponseKey(key);
@@ -476,6 +499,18 @@ async function getCompanyAttendanceDetail(company, attendanceId, { shiftKey } = 
       threadMap
     );
   }
+
+  const halfEntries = listMarkedHalfShiftEntries(attendance);
+  shiftsPayload.halfShifts = halfEntries.map(({ slot, shiftKey: halfKey, shift }) => ({
+    slot,
+    shiftKey: halfKey,
+    ...serializeAdminRegularShift(shift, halfKey),
+  }));
+  commentThreads.halfShifts = await Promise.all(
+    halfEntries.map(({ shiftKey: halfKey }) =>
+      resolveCommentThreadForShift(attendance, halfKey, threadMap)
+    )
+  );
 
   return {
     ...base,
@@ -492,7 +527,7 @@ async function verifyAttendanceShift({
 }) {
   assertEmployeeShiftKey(shiftKey);
   const attendance = await loadCompanyAttendance(company._id, attendanceId);
-  const shift = attendance.shifts[shiftKey];
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReviewable(shift, shiftKey);
 
   if (shift.status === SHIFT_STATUS.VERIFIED) {
@@ -515,7 +550,7 @@ async function verifyAttendanceShift({
   if (attendance.lock_attendance) {
     attendance.$locals.allowLockedEdit = true;
   }
-  attendance.markModified(`shifts.${shiftKey}`);
+  markModified();
   await attendance.save();
 
   await writeActivityLog({
@@ -549,7 +584,7 @@ async function addAdminCommentThreadReply({
 }) {
   assertEmployeeShiftKey(shiftKey);
   const attendance = await loadCompanyAttendance(company._id, attendanceId);
-  const shift = attendance.shifts[shiftKey];
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReviewable(shift, shiftKey);
 
   const replyText = validateReplyText(text);
@@ -605,7 +640,8 @@ async function getEmployeeAttendanceDetail(employeeProfile, attendanceId, { shif
   const threadMap = await loadThreadsForAttendance(attendance._id);
 
   if (shiftKey) {
-    const hasShift = shiftIsVisibleToCompany(attendance.shifts[shiftKey], shiftKey);
+    const { shift } = accessEmployeeShift(attendance, shiftKey);
+    const hasShift = shiftIsVisibleToCompany(shift);
     return {
       ...base,
       shiftKey,
@@ -621,10 +657,11 @@ async function getEmployeeAttendanceDetail(employeeProfile, attendanceId, { shif
     night: null,
     extraDay: null,
     extraNight: null,
+    halfShifts: [],
   };
 
-  for (const key of SHIFT_KEYS) {
-    if (!shiftIsVisibleToCompany(attendance.shifts[key], key)) {
+  for (const key of FIXED_SHIFT_KEYS) {
+    if (!shiftIsVisibleToCompany(attendance.shifts[key])) {
       continue;
     }
     const responseKey = shiftKeyToResponseKey(key);
@@ -634,6 +671,13 @@ async function getEmployeeAttendanceDetail(employeeProfile, attendanceId, { shif
       threadMap
     );
   }
+
+  const halfEntries = listMarkedHalfShiftEntries(attendance);
+  commentThreads.halfShifts = await Promise.all(
+    halfEntries.map(({ shiftKey: halfKey }) =>
+      resolveCommentThreadForShift(attendance, halfKey, threadMap)
+    )
+  );
 
   return {
     ...base,
@@ -661,7 +705,7 @@ async function addEmployeeCommentThreadReply({
     throw new AppError('Attendance record not found', 404);
   }
 
-  const shift = attendance.shifts[shiftKey];
+  const { shift } = accessEmployeeShift(attendance, shiftKey);
   assertShiftReviewable(shift, shiftKey);
 
   if (!employeeProfile.user_id) {
