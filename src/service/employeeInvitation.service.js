@@ -73,6 +73,7 @@ async function linkEmployeeToUser({ invitation, user, session, employeeNameOverr
 
   employee.user_id = user._id;
   employee.is_active = true;
+  employee.activated_at = new Date();
   await employee.save({ session });
 
   invitation.status = INVITATION_STATUS.ACCEPTED;

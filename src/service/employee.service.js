@@ -413,6 +413,9 @@ async function setEmployeeActive({ company, adminUserId, employeeId, isActive })
 
   const before = employee.is_active;
   employee.is_active = isActive;
+  if (isActive) {
+    employee.activated_at = new Date();
+  }
   await employee.save();
 
   if (employee.user_id) {

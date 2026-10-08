@@ -40,6 +40,8 @@ const employeeProfileSchema = new mongoose.Schema(
       required: true,
       default: false,
     },
+    /** First activation or latest reactivation — attendance is not provisioned before this day. */
+    activated_at: { type: Date },
 
     // --- Optional profile fields (per FR-035) ---
     employee_profile_picture: { type: String, trim: true }, // Cloudinary URL
