@@ -12,6 +12,10 @@ const {
 const { resolveDateRangeFilter, parseRequiredDateKey } = require('../helper/dateRangeFilter.helper');
 const { isUnlockWindowActive } = require('../helper/unlockWindow.helper');
 const {
+  MARKED_SHIFT_MONGO_OR,
+  parseMarkedAttendanceQuery,
+} = require('../helper/attendanceMarked.helper');
+const {
   MAX_HALF_SHIFTS,
   assertEmployeeShiftKey,
   isExtraShiftKey,
@@ -424,7 +428,11 @@ async function getTodayAttendanceForEmployee(employeeProfile, requestedDateKey) 
 /**
  * Paginated attendance history for the authenticated employee (provisioned days included).
  */
-async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, page, limit }) {
+async function listAttendanceForEmployee(
+  employeeProfile,
+  { startDate, endDate, page, limit, markedAttendance }
+) {
+  const markedAttendanceOnly = parseMarkedAttendanceQuery(markedAttendance);
   const company = await loadEmployeeCompanyContext(employeeProfile);
   const timezone = company.timezone || 'Asia/Kolkata';
   const todayKey = getCompanyTodayDateKey(timezone);
@@ -456,17 +464,28 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
     employee_id: employeeProfile._id,
     company_id: company._id,
     date: dateRange,
+    ...(markedAttendanceOnly ? { $or: MARKED_SHIFT_MONGO_OR } : {}),
   };
 
-  const [total, records] = await Promise.all([
-    Attendance.countDocuments(filter),
-    Attendance.find(filter).sort({ date: -1 }).skip(skip).limit(limitNum),
-  ]);
+  let records;
+  let total;
+
+  if (markedAttendanceOnly) {
+    records = await Attendance.find(filter).sort({ date: -1 }).lean();
+    total = records.length;
+    records = records.slice(skip, skip + limitNum);
+  } else {
+    [total, records] = await Promise.all([
+      Attendance.countDocuments(filter),
+      Attendance.find(filter).sort({ date: -1 }).skip(skip).limit(limitNum),
+    ]);
+  }
 
   return {
     timezone,
     startDate: startDateKey,
     endDate: endDateKey,
+    markedAttendance: markedAttendanceOnly,
     page: pageNum,
     limit: limitNum,
     total,

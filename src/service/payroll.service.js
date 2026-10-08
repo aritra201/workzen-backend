@@ -7,6 +7,7 @@ const {
   listMarkedHalfShiftEntries,
   parseHalfShiftSlot,
 } = require('../helper/employeeShiftKeys.helper');
+const { attendanceDocumentHasMarkedShift } = require('../helper/attendanceMarked.helper');
 const {
   getCompanyTodayDateKey,
   utcDateToDateKey,
@@ -57,16 +58,6 @@ async function loadEmployeesForCompanyFilter(companyId, employeeIdRaw) {
     ids.length === 1 ? { employee_id: ids[0] } : { employee_id: { $in: ids } };
 
   return { employees, filter };
-}
-
-function attendanceHasMarkedShift(attendance) {
-  const shifts = attendance.shifts || {};
-  for (const key of FIXED_SHIFT_KEYS) {
-    if (shifts[key]?.marked) {
-      return true;
-    }
-  }
-  return (shifts.half_shifts || []).some((half) => Boolean(half?.marked));
 }
 
 function collectMarkedPayrollShifts(attendance) {
@@ -193,7 +184,7 @@ async function listPayroll(company, { employeeId, startDate, endDate, page, limi
 
   let records = await Attendance.find(filter).sort({ date: -1, created_at: -1, _id: -1 }).lean();
 
-  records = records.filter((doc) => attendanceHasMarkedShift(doc));
+  records = records.filter((doc) => attendanceDocumentHasMarkedShift(doc));
 
   records.sort((a, b) => {
     const dateDiff = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
@@ -252,5 +243,5 @@ module.exports = {
   listPayroll,
   listPayrollForEmployee,
   collectMarkedPayrollShifts,
-  attendanceHasMarkedShift,
+  attendanceHasMarkedShift: attendanceDocumentHasMarkedShift,
 };

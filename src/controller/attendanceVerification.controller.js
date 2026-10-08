@@ -59,7 +59,7 @@ function optionalShiftKeyFromQuery(req) {
 }
 
 async function list(req, res) {
-  const { employeeId, startDate, endDate, status, page, limit } = req.query;
+  const { employeeId, startDate, endDate, status, page, limit, markedAttendance } = req.query;
   const data = await attendanceVerificationService.listCompanyAttendance(req.company, {
     employeeId,
     startDate,
@@ -67,6 +67,7 @@ async function list(req, res) {
     status,
     page,
     limit,
+    markedAttendance,
   });
   res.status(200).json(data);
 }

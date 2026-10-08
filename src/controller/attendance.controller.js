@@ -79,12 +79,13 @@ async function getToday(req, res) {
 }
 
 async function listMyAttendance(req, res) {
-  const { startDate, endDate, page, limit } = req.query;
+  const { startDate, endDate, page, limit, markedAttendance } = req.query;
   const data = await attendanceService.listAttendanceForEmployee(employeeFromRequest(req), {
     startDate,
     endDate,
     page,
     limit,
+    markedAttendance,
   });
   res.status(200).json(data);
 }

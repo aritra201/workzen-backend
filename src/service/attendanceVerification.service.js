@@ -14,6 +14,10 @@ const { writeActivityLog } = require('../helper/activityLog.helper');
 const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
 const { parseObjectId } = require('../utils/objectId.helper');
 const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
+const {
+  parseMarkedAttendanceQuery,
+  attendanceDocumentHasMarkedShift,
+} = require('../helper/attendanceMarked.helper');
 const { shiftHasEmployeeSubmission } = require('../helper/shiftSubmission.helper');
 const {
   getCompanyTodayDateKey,
@@ -357,8 +361,9 @@ async function ensureCommentThreadBootstrapped(attendance, shiftKey) {
 
 async function listCompanyAttendance(
   company,
-  { employeeId, startDate, endDate, status, page, limit }
+  { employeeId, startDate, endDate, status, page, limit, markedAttendance }
 ) {
+  const markedAttendanceOnly = parseMarkedAttendanceQuery(markedAttendance);
   const timezone = company.timezone || 'Asia/Kolkata';
   const todayKey = getCompanyTodayDateKey(timezone);
   const statusFilter = parseStatusFilter(status);
@@ -388,6 +393,10 @@ async function listCompanyAttendance(
 
   const query = Attendance.find(filter).sort({ created_at: -1, date: -1, _id: -1 });
   let records = await query.lean();
+
+  if (markedAttendanceOnly) {
+    records = records.filter((doc) => attendanceDocumentHasMarkedShift(doc));
+  }
 
   if (statusFilter) {
     records = records.filter((doc) => attendanceMatchesStatusFilter(doc, statusFilter));
@@ -419,6 +428,7 @@ async function listCompanyAttendance(
     startDate: startDateKey,
     endDate: endDateKey,
     status: statusFilter,
+    markedAttendance: markedAttendanceOnly,
     employeeId: filterEmployees.length
       ? filterEmployees.map((e) => e._id)
       : null,
