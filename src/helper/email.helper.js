@@ -1,5 +1,14 @@
 const nodemailer = require('nodemailer');
 const env = require('../config/env');
+const {
+  buildVerificationOtpEmail,
+  buildPasswordResetOtpEmail,
+  buildMemberInvitationEmail,
+  buildEmployeeInvitationEmail,
+  buildUnlockRequestSubmittedEmail,
+  buildUnlockRequestApprovedEmail,
+  buildUnlockRequestDeniedEmail,
+} = require('./emailTemplates.helper');
 
 let transporter;
 
@@ -29,70 +38,47 @@ async function sendMail({ to, subject, html }) {
 }
 
 function sendVerificationOtpEmail({ to, otp }) {
-  const safeOtp = escapeHtml(otp);
   const minutes = env.tokenExpiry.emailVerificationOtpMinutes;
   return sendMail({
     to,
     subject: 'Your WorkZen verification code',
-    html: `
-      <p>Welcome to WorkZen. Enter this code on the verification screen to activate your account:</p>
-      <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${safeOtp}</p>
-      <p>This code expires in ${minutes} minutes. If you didn't create an account, you can ignore this email.</p>
-    `,
+    html: buildVerificationOtpEmail({ otp, minutes }),
   });
 }
 
 function sendMemberInvitationEmail({ to, rawToken, companyName, memberName }) {
-  const link = `${env.clientUrl}/invite/member?token=${rawToken}`;
-  const greeting = memberName
-    ? `<p>Hello ${escapeHtml(memberName)},</p>`
-    : '';
+  const link = `${env.clientUrl}/invite/member?token=${encodeURIComponent(rawToken)}`;
   return sendMail({
     to,
     subject: `You're invited to view ${companyName} on WorkZen`,
-    html: `
-      ${greeting}
-      <p>You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as a view-only member.</p>
-      <p><a href="${link}">Accept invitation</a></p>
-      <p>This link expires in 72 hours. If you did not expect this email, you can ignore it.</p>
-    `,
+    html: buildMemberInvitationEmail({
+      memberName,
+      companyName,
+      inviteUrl: link,
+    }),
   });
 }
 
 function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }) {
-  const link = `${env.clientUrl}/invite/employee?token=${rawToken}`;
+  const link = `${env.clientUrl}/invite/employee?token=${encodeURIComponent(rawToken)}`;
   return sendMail({
     to,
     subject: `You're invited to join ${companyName} on WorkZen`,
-    html: `
-      <p>Hello ${employeeName},</p>
-      <p>You have been invited to join <strong>${companyName}</strong> on WorkZen as an employee.</p>
-      <p><a href="${link}">Accept invitation and set up your account</a></p>
-      <p>This link expires in 72 hours. If you did not expect this email, you can ignore it.</p>
-    `,
+    html: buildEmployeeInvitationEmail({
+      employeeName,
+      companyName,
+      inviteUrl: link,
+    }),
   });
 }
 
 function sendPasswordResetOtpEmail({ to, otp }) {
-  const safeOtp = escapeHtml(otp);
   const minutes = env.tokenExpiry.passwordResetOtpMinutes;
   return sendMail({
     to,
     subject: 'Your WorkZen password reset code',
-    html: `
-      <p>We received a request to reset your WorkZen password. Enter this code in the app:</p>
-      <p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${safeOtp}</p>
-      <p>This code expires in ${minutes} minutes. If you didn't request this, you can ignore this email.</p>
-    `,
+    html: buildPasswordResetOtpEmail({ otp, minutes }),
   });
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function sendUnlockRequestSubmittedEmail({
@@ -106,42 +92,38 @@ function sendUnlockRequestSubmittedEmail({
   return sendMail({
     to,
     subject: `New unlock request from ${employeeName} for ${dateKey}`,
-    html: `
-      <p>Hello ${escapeHtml(adminName || 'Admin')},</p>
-      <p><strong>${escapeHtml(employeeName)}</strong> (${escapeHtml(employeeEmail)}) submitted an unlock request for attendance on <strong>${escapeHtml(dateKey)}</strong> at ${escapeHtml(companyName || 'your company')}.</p>
-      <p>Open WorkZen to approve or deny this request.</p>
-    `,
+    html: buildUnlockRequestSubmittedEmail({
+      adminName,
+      employeeName,
+      employeeEmail,
+      dateKey,
+      companyName,
+    }),
   });
 }
 
 function sendUnlockRequestApprovedEmail({ to, employeeName, dateKey, decisionNote, expiresAt }) {
-  const noteBlock = decisionNote
-    ? `<p><strong>Admin note:</strong> ${escapeHtml(decisionNote)}</p>`
-    : '';
   return sendMail({
     to,
     subject: `Unlock request approved for ${dateKey}`,
-    html: `
-      <p>Hello ${escapeHtml(employeeName)},</p>
-      <p>Your unlock request for <strong>${escapeHtml(dateKey)}</strong> was approved. You can now mark attendance for that date.</p>
-      <p>This window expires at ${escapeHtml(new Date(expiresAt).toISOString())}.</p>
-      ${noteBlock}
-    `,
+    html: buildUnlockRequestApprovedEmail({
+      employeeName,
+      dateKey,
+      decisionNote,
+      expiresAt,
+    }),
   });
 }
 
 function sendUnlockRequestDeniedEmail({ to, employeeName, dateKey, decisionNote }) {
-  const noteBlock = decisionNote
-    ? `<p><strong>Admin response:</strong> ${escapeHtml(decisionNote)}</p>`
-    : '<p>No additional note was provided.</p>';
   return sendMail({
     to,
     subject: `Unlock request denied for ${dateKey}`,
-    html: `
-      <p>Hello ${escapeHtml(employeeName)},</p>
-      <p>Your unlock request for <strong>${escapeHtml(dateKey)}</strong> was denied. That date remains blocked for direct attendance entry.</p>
-      ${noteBlock}
-    `,
+    html: buildUnlockRequestDeniedEmail({
+      employeeName,
+      dateKey,
+      decisionNote,
+    }),
   });
 }
 
@@ -154,4 +136,5 @@ module.exports = {
   sendUnlockRequestSubmittedEmail,
   sendUnlockRequestApprovedEmail,
   sendUnlockRequestDeniedEmail,
+  escapeHtml: require('./emailTemplates.helper').escapeHtml,
 };
