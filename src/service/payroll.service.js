@@ -13,6 +13,7 @@ const {
   utcDateToDateKey,
 } = require('../utils/timezone.helper');
 const { AppError } = require('../utils/AppError');
+const { buildPayrollCsv } = require('../helper/payrollCsv.helper');
 
 const DEFAULT_LIST_DAYS = 30;
 const DEFAULT_LIST_LIMIT = 20;
@@ -155,7 +156,7 @@ function computePayrollSummary(items) {
 /**
  * Payroll roll-up: only attendance days with at least one confirmed (marked) shift.
  */
-async function listPayroll(company, { employeeId, startDate, endDate, page, limit }) {
+async function queryPayrollItems(company, { employeeId, startDate, endDate }) {
   const timezone = company.timezone || 'Asia/Kolkata';
   const todayKey = getCompanyTodayDateKey(timezone);
 
@@ -169,12 +170,6 @@ async function listPayroll(company, { employeeId, startDate, endDate, page, limi
 
   const { employees: filterEmployees, filter: employeeFilter } =
     await loadEmployeesForCompanyFilter(company._id, employeeId);
-
-  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
-  const limitNum = Math.min(
-    MAX_LIST_LIMIT,
-    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
-  );
 
   const filter = {
     company_id: company._id,
@@ -198,11 +193,31 @@ async function listPayroll(company, { employeeId, startDate, endDate, page, limi
   const employees = await EmployeeProfile.find({ _id: { $in: employeeIds } }).lean();
   const employeeMap = new Map(employees.map((e) => [String(e._id), e]));
 
-  const allItems = records.map((attendance) =>
+  const items = records.map((attendance) =>
     serializePayrollListItem(attendance, employeeMap.get(String(attendance.employee_id)))
   );
 
-  const summary = computePayrollSummary(allItems);
+  const summary = computePayrollSummary(items);
+
+  return {
+    timezone,
+    startDate: startDateKey,
+    endDate: endDateKey,
+    employeeId: filterEmployees.length ? filterEmployees.map((e) => e._id) : null,
+    items,
+    summary,
+  };
+}
+
+async function listPayroll(company, { employeeId, startDate, endDate, page, limit }) {
+  const { timezone, startDate: startDateKey, endDate: endDateKey, employeeId: filterEmployeeIds, items: allItems, summary } =
+    await queryPayrollItems(company, { employeeId, startDate, endDate });
+
+  const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+  const limitNum = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || DEFAULT_LIST_LIMIT)
+  );
 
   const total = allItems.length;
   const skip = (pageNum - 1) * limitNum;
@@ -212,13 +227,34 @@ async function listPayroll(company, { employeeId, startDate, endDate, page, limi
     timezone,
     startDate: startDateKey,
     endDate: endDateKey,
-    employeeId: filterEmployees.length ? filterEmployees.map((e) => e._id) : null,
+    employeeId: filterEmployeeIds,
     page: pageNum,
     limit: limitNum,
     total,
     totalPages: total === 0 ? 0 : Math.ceil(total / limitNum),
     summary,
     items,
+  };
+}
+
+async function exportPayrollCsv(company, { employeeId, startDate, endDate }) {
+  const { startDate: startDateKey, endDate: endDateKey, items, summary } = await queryPayrollItems(
+    company,
+    { employeeId, startDate, endDate }
+  );
+
+  const csv = buildPayrollCsv({
+    items,
+    summary,
+    startDate: startDateKey,
+    endDate: endDateKey,
+  });
+
+  return {
+    csv,
+    filename: `payroll-${startDateKey}-to-${endDateKey}.csv`,
+    startDate: startDateKey,
+    endDate: endDateKey,
   };
 }
 
@@ -242,6 +278,7 @@ async function listPayrollForEmployee(employeeProfile, { startDate, endDate, pag
 module.exports = {
   listPayroll,
   listPayrollForEmployee,
+  exportPayrollCsv,
   collectMarkedPayrollShifts,
   attendanceHasMarkedShift: attendanceDocumentHasMarkedShift,
 };

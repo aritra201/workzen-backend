@@ -11,6 +11,7 @@ const viewer = [requireAuth, requireCompanyAttendanceViewer];
 const employeePayroll = [requireAuth, requireActiveEmployee];
 
 router.get('/me', ...employeePayroll, asyncHandler(payrollController.listMy));
+router.get('/export', ...viewer, asyncHandler(payrollController.exportCsv));
 router.get('/', ...viewer, asyncHandler(payrollController.list));
 
 module.exports = router;
