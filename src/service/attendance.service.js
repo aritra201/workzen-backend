@@ -35,15 +35,6 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_DAYS = 30;
 
-/** History list: only dates where the employee confirmed at least one shift. */
-const EMPLOYEE_MARKED_SHIFT_OR = [
-  { 'shifts.day.marked': true },
-  { 'shifts.night.marked': true },
-  { 'shifts.extra_day.marked': true },
-  { 'shifts.extra_night.marked': true },
-  { 'shifts.half_shifts.marked': true },
-];
-
 function shiftHasProfileAmount(shift) {
   return (
     shift?.amount != null &&
@@ -431,7 +422,7 @@ async function getTodayAttendanceForEmployee(employeeProfile, requestedDateKey) 
 }
 
 /**
- * Paginated attendance history for the authenticated employee (read-only; does not create rows).
+ * Paginated attendance history for the authenticated employee (provisioned days included).
  */
 async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, page, limit }) {
   const company = await loadEmployeeCompanyContext(employeeProfile);
@@ -446,6 +437,14 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
     defaultWindowDays: DEFAULT_LIST_DAYS,
   });
 
+  const { ensureEmployeeAttendanceProvisionedForRange } = require('./attendanceProvisioning.service');
+  await ensureEmployeeAttendanceProvisionedForRange(
+    employeeProfile,
+    company,
+    startDateKey,
+    endDateKey
+  );
+
   const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
   const limitNum = Math.min(
     MAX_LIST_LIMIT,
@@ -457,7 +456,6 @@ async function listAttendanceForEmployee(employeeProfile, { startDate, endDate, 
     employee_id: employeeProfile._id,
     company_id: company._id,
     date: dateRange,
-    $or: EMPLOYEE_MARKED_SHIFT_OR,
   };
 
   const [total, records] = await Promise.all([

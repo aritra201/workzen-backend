@@ -125,6 +125,47 @@ async function provisionAttendanceForCompany(company, { lookbackDays = PROVISION
   };
 }
 
+/**
+ * Creates empty attendance rows for one employee for each day in [startKey, endKey]
+ * that falls within [activated date, today] (company timezone).
+ */
+async function ensureEmployeeAttendanceProvisionedForRange(
+  employeeProfile,
+  company,
+  startKey,
+  endKey
+) {
+  const timezone = company.timezone || DEFAULT_TIMEZONE;
+  const todayKey = getCompanyTodayDateKey(timezone);
+  const employee = await EmployeeProfile.findById(employeeProfile._id).select(
+    '_id user_id company_id employee_email activated_at created_at updated_at'
+  );
+  if (!employee) {
+    return;
+  }
+
+  await resolveEmployeeActivatedAt(employee);
+  const windowStartKey = provisionStartDateKeyForEmployee(employee, startKey, todayKey, timezone);
+  const rangeEndKey = endKey > todayKey ? todayKey : endKey;
+
+  if (windowStartKey > rangeEndKey) {
+    return;
+  }
+
+  const actorUserId = company.admin_user_id;
+  const dateKeys = listDateKeysInclusive(windowStartKey, rangeEndKey, timezone);
+
+  for (const dateKey of dateKeys) {
+    await getOrCreateAttendanceForEmployeeDate({
+      company,
+      employeeProfile: employee,
+      dateKey,
+      actorUserId: employee.user_id || actorUserId,
+      actorRole: COMPANY_ROLE.SYSTEM,
+    });
+  }
+}
+
 async function provisionAttendanceForAllCompanies({ lookbackDays = PROVISION_LOOKBACK_DAYS } = {}) {
   const companies = await Company.find({}).select('_id timezone admin_user_id company_name');
   const results = [];
@@ -147,6 +188,7 @@ module.exports = {
   PROVISION_LOOKBACK_DAYS,
   provisionAttendanceForCompany,
   provisionAttendanceForAllCompanies,
+  ensureEmployeeAttendanceProvisionedForRange,
   resolveEmployeeActivatedAt,
   provisionStartDateKeyForEmployee,
 };
