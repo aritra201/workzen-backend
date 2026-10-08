@@ -1,4 +1,4 @@
-const { Attendance, EmployeeProfile } = require('../models');
+const { Attendance, EmployeeProfile, Company } = require('../models');
 const { SHIFT_KEY } = require('../utils/enums');
 const { resolveDateRangeFilter } = require('../helper/dateRangeFilter.helper');
 const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper');
@@ -231,8 +231,26 @@ async function listPayroll(company, { employeeId, startDate, endDate, page, limi
   };
 }
 
+async function listPayrollForEmployee(employeeProfile, { startDate, endDate, page, limit }) {
+  const companyId =
+    employeeProfile.company_id?._id ?? employeeProfile.company_id;
+  const company = await Company.findById(companyId);
+  if (!company) {
+    throw new AppError('Company not found for employee', 500);
+  }
+
+  return listPayroll(company, {
+    employeeId: String(employeeProfile._id),
+    startDate,
+    endDate,
+    page,
+    limit,
+  });
+}
+
 module.exports = {
   listPayroll,
+  listPayrollForEmployee,
   collectMarkedPayrollShifts,
   attendanceHasMarkedShift,
 };
