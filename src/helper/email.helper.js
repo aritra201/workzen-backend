@@ -46,8 +46,14 @@ function sendVerificationOtpEmail({ to, otp }) {
   });
 }
 
+function mobileInviteUrl(kind, rawToken) {
+  const scheme = env.mobileAppScheme;
+  return `${scheme}://invite/${kind}?token=${encodeURIComponent(rawToken)}`;
+}
+
 function sendMemberInvitationEmail({ to, rawToken, companyName, memberName }) {
   const link = `${env.clientUrl}/invite/member?token=${encodeURIComponent(rawToken)}`;
+  const appLink = mobileInviteUrl('member', rawToken);
   return sendMail({
     to,
     subject: `You're invited to view ${companyName} on WorkZen`,
@@ -55,12 +61,14 @@ function sendMemberInvitationEmail({ to, rawToken, companyName, memberName }) {
       memberName,
       companyName,
       inviteUrl: link,
+      appInviteUrl: appLink,
     }),
   });
 }
 
 function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }) {
   const link = `${env.clientUrl}/invite/employee?token=${encodeURIComponent(rawToken)}`;
+  const appLink = mobileInviteUrl('employee', rawToken);
   return sendMail({
     to,
     subject: `You're invited to join ${companyName} on WorkZen`,
@@ -68,6 +76,7 @@ function sendEmployeeInvitationEmail({ to, rawToken, companyName, employeeName }
       employeeName,
       companyName,
       inviteUrl: link,
+      appInviteUrl: appLink,
     }),
   });
 }

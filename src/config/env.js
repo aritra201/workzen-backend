@@ -35,6 +35,9 @@ module.exports = {
 
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
+  /** Custom URL scheme for mobile app invite links (workzen://invite/...) */
+  mobileAppScheme: (process.env.MOBILE_APP_SCHEME || 'workzen').replace(/:\/\//, ''),
+
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     apiKey: process.env.CLOUDINARY_API_KEY,

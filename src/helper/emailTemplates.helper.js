@@ -153,7 +153,14 @@ function buildPasswordResetOtpEmail({ otp, minutes }) {
   });
 }
 
-function buildMemberInvitationEmail({ memberName, companyName, inviteUrl }) {
+function webInviteFallback(inviteUrl) {
+  const safe = escapeHtml(inviteUrl);
+  return paragraph(
+    `On a computer or without the app, <a href="${safe}" style="color:${BRAND.primary};">accept in your browser</a>.`
+  );
+}
+
+function buildMemberInvitationEmail({ memberName, companyName, inviteUrl, appInviteUrl }) {
   const greeting = memberName
     ? paragraph(`Hello <strong>${escapeHtml(memberName)}</strong>,`)
     : '';
@@ -163,21 +170,27 @@ function buildMemberInvitationEmail({ memberName, companyName, inviteUrl }) {
     bodyHtml: `
       ${greeting}
       ${paragraph(`You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as a <strong>view-only member</strong>. You can review attendance and payroll for the company.`)}
+      ${webInviteFallback(inviteUrl)}
     `,
-    cta: { href: inviteUrl, label: 'Accept invitation' },
+    cta: appInviteUrl
+      ? { href: appInviteUrl, label: 'Accept invitation' }
+      : { href: inviteUrl, label: 'Accept invitation' },
     footerNote: 'This link expires in 72 hours.',
   });
 }
 
-function buildEmployeeInvitationEmail({ employeeName, companyName, inviteUrl }) {
+function buildEmployeeInvitationEmail({ employeeName, companyName, inviteUrl, appInviteUrl }) {
   return renderEmailLayout({
     preheader: `Join ${companyName} on WorkZen`,
     title: 'Employee invitation',
     bodyHtml: `
       ${paragraph(`Hello <strong>${escapeHtml(employeeName)}</strong>,`)}
       ${paragraph(`You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as an employee. Accept the invitation to mark attendance and manage your profile.`)}
+      ${webInviteFallback(inviteUrl)}
     `,
-    cta: { href: inviteUrl, label: 'Accept invitation' },
+    cta: appInviteUrl
+      ? { href: appInviteUrl, label: 'Accept invitation' }
+      : { href: inviteUrl, label: 'Accept invitation' },
     footerNote: 'This link expires in 72 hours.',
   });
 }
