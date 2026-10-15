@@ -19,18 +19,23 @@ async function start() {
       process.env.SMTP_USER?.trim() &&
       process.env.SMTP_PASSWORD?.trim();
 
-    if (!hasResend && !(allowSmtp && hasSmtp)) {
-      throw new Error(
-        'Production email: set RESEND_API_KEY + MAIL_FROM (required on Render free tier). ' +
-          'Paid Render + Gmail SMTP: set SMTP_* and ALLOW_PRODUCTION_SMTP=true.'
-      );
-    }
     if (hasResend) {
       // eslint-disable-next-line no-console
       console.log('Email: Resend API (HTTPS)');
-    } else {
+      if (!process.env.MAIL_FROM?.trim()) {
+        // eslint-disable-next-line no-console
+        console.warn('MAIL_FROM is not set — set it to a verified Resend sender address.');
+      }
+    } else if (allowSmtp && hasSmtp) {
       // eslint-disable-next-line no-console
       console.log('Email: SMTP (ALLOW_PRODUCTION_SMTP=true)');
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'Email not configured: invites / forgot-password will fail until you set ' +
+          'RESEND_API_KEY + MAIL_FROM on Render (free tier). ' +
+          'Or SMTP_* + ALLOW_PRODUCTION_SMTP=true on a paid instance.'
+      );
     }
   }
 
