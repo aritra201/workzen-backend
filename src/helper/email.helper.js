@@ -65,6 +65,12 @@ async function sendMail({ to, subject, html }) {
   if (useResendApi()) {
     return sendMailViaResend({ to, subject, html });
   }
+  if (env.nodeEnv === 'production' && process.env.ALLOW_PRODUCTION_SMTP !== 'true') {
+    throw new Error(
+      'Email not sent: set RESEND_API_KEY on the server (Render free tier blocks SMTP). ' +
+        'Or set ALLOW_PRODUCTION_SMTP=true on a paid instance with working SMTP.'
+    );
+  }
   const info = await getTransporter().sendMail({
     from: env.mail.fromAddress,
     to,

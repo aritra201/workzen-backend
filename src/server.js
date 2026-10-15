@@ -13,14 +13,16 @@ async function start() {
 
   if (env.nodeEnv === 'production') {
     const hasResend = Boolean(process.env.RESEND_API_KEY?.trim());
+    const allowSmtp = process.env.ALLOW_PRODUCTION_SMTP === 'true';
     const hasSmtp =
       process.env.SMTP_HOST?.trim() &&
       process.env.SMTP_USER?.trim() &&
       process.env.SMTP_PASSWORD?.trim();
-    if (!hasResend && !hasSmtp) {
+
+    if (!hasResend && !(allowSmtp && hasSmtp)) {
       throw new Error(
-        'Production email not configured. On Render free tier set RESEND_API_KEY + MAIL_FROM ' +
-          '(SMTP ports are blocked). Or use a paid Render instance with SMTP_HOST/USER/PASSWORD.'
+        'Production email: set RESEND_API_KEY + MAIL_FROM (required on Render free tier). ' +
+          'Paid Render + Gmail SMTP: set SMTP_* and ALLOW_PRODUCTION_SMTP=true.'
       );
     }
     if (hasResend) {
@@ -28,9 +30,7 @@ async function start() {
       console.log('Email: Resend API (HTTPS)');
     } else {
       // eslint-disable-next-line no-console
-      console.warn(
-        'Email: SMTP — Render free tier blocks ports 587/465; expect ETIMEDOUT unless on a paid instance.'
-      );
+      console.log('Email: SMTP (ALLOW_PRODUCTION_SMTP=true)');
     }
   }
 

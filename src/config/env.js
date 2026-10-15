@@ -35,7 +35,15 @@ module.exports = {
     resendApiKey: process.env.RESEND_API_KEY?.trim() || '',
   },
 
-  clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  clientUrls: (process.env.CORS_ORIGINS || process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(',')
+    .map((url) => url.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+
+  clientUrl: (process.env.CORS_ORIGINS || process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(',')[0]
+    .trim()
+    .replace(/\/$/, ''),
 
   /** Custom URL scheme for mobile app invite links (workzen://invite/...) */
   mobileAppScheme: (process.env.MOBILE_APP_SCHEME || 'workzen').replace(/:\/\//, ''),

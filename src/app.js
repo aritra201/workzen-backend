@@ -20,6 +20,13 @@ const env = require('./config/env');
 function createApp() {
   const app = express();
 
+  // Render / Cloudflare set X-Forwarded-For; required for express-rate-limit and correct client IP.
+  if (env.nodeEnv === 'production') {
+    app.set('trust proxy', 1);
+  }
+
+  const allowedOrigins = new Set(env.clientUrls);
+
   app.use(helmet());
   app.use(
     cors({
@@ -27,7 +34,8 @@ function createApp() {
         if (!origin) {
           return callback(null, true);
         }
-        if (origin === env.clientUrl) {
+        const normalized = origin.replace(/\/$/, '');
+        if (allowedOrigins.has(normalized)) {
           return callback(null, true);
         }
         if (env.nodeEnv === 'development') {
