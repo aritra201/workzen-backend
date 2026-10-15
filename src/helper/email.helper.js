@@ -14,10 +14,17 @@ let transporter;
 
 function getTransporter() {
   if (!transporter) {
+    if (!env.mail.host || !env.mail.user || !env.mail.password) {
+      throw new Error(
+        'Email is not configured (SMTP_HOST, SMTP_USER, SMTP_PASSWORD). ' +
+          'Add them to the server environment and redeploy.'
+      );
+    }
     transporter = nodemailer.createTransport({
       host: env.mail.host,
       port: env.mail.port,
       secure: env.mail.port === 465,
+      requireTLS: env.mail.port === 587,
       auth: {
         user: env.mail.user,
         pass: env.mail.password,

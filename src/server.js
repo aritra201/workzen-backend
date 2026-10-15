@@ -11,6 +11,18 @@ async function start() {
   env.required('JWT_REFRESH_SECRET');
   env.required('MONGODB_URI');
 
+  if (env.nodeEnv === 'production') {
+    const missingMail = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD'].filter(
+      (key) => !process.env[key]?.trim()
+    );
+    if (missingMail.length > 0) {
+      throw new Error(
+        `Missing email env on server: ${missingMail.join(', ')}. ` +
+          'Set them in Render → Environment (same as local .env).'
+      );
+    }
+  }
+
   await connectDB();
 
   startAttendanceLockJob();
