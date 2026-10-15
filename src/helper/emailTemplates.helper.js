@@ -153,10 +153,18 @@ function buildPasswordResetOtpEmail({ otp, minutes }) {
   });
 }
 
+function appInviteDeepLink(appInviteUrl) {
+  if (!appInviteUrl) return '';
+  const safe = escapeHtml(appInviteUrl);
+  return paragraph(
+    `If the button opens the website, install the WorkZen app and use <a href="${safe}" style="color:${BRAND.primary};">open in app</a>, or accept in your browser below.`
+  );
+}
+
 function webInviteFallback(inviteUrl) {
   const safe = escapeHtml(inviteUrl);
   return paragraph(
-    `On a computer or without the app, <a href="${safe}" style="color:${BRAND.primary};">accept in your browser</a>.`
+    `Accept in your browser: <a href="${safe}" style="color:${BRAND.primary};">${safe}</a>`
   );
 }
 
@@ -170,11 +178,10 @@ function buildMemberInvitationEmail({ memberName, companyName, inviteUrl, appInv
     bodyHtml: `
       ${greeting}
       ${paragraph(`You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as a <strong>view-only member</strong>. You can review attendance and payroll for the company.`)}
+      ${appInviteDeepLink(appInviteUrl)}
       ${webInviteFallback(inviteUrl)}
     `,
-    cta: appInviteUrl
-      ? { href: appInviteUrl, label: 'Accept invitation' }
-      : { href: inviteUrl, label: 'Accept invitation' },
+    cta: { href: inviteUrl, label: 'Accept invitation' },
     footerNote: 'This link expires in 72 hours.',
   });
 }
@@ -186,11 +193,10 @@ function buildEmployeeInvitationEmail({ employeeName, companyName, inviteUrl, ap
     bodyHtml: `
       ${paragraph(`Hello <strong>${escapeHtml(employeeName)}</strong>,`)}
       ${paragraph(`You have been invited to join <strong>${escapeHtml(companyName)}</strong> on WorkZen as an employee. Accept the invitation to mark attendance and manage your profile.`)}
+      ${appInviteDeepLink(appInviteUrl)}
       ${webInviteFallback(inviteUrl)}
     `,
-    cta: appInviteUrl
-      ? { href: appInviteUrl, label: 'Accept invitation' }
-      : { href: inviteUrl, label: 'Accept invitation' },
+    cta: { href: inviteUrl, label: 'Accept invitation' },
     footerNote: 'This link expires in 72 hours.',
   });
 }
