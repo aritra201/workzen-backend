@@ -31,6 +31,8 @@ module.exports = {
     user: process.env.SMTP_USER,
     password: process.env.SMTP_PASSWORD,
     fromAddress: process.env.MAIL_FROM || 'no-reply@workzen.app',
+    /** HTTPS API — required on Render free tier (SMTP ports 25/465/587 are blocked). */
+    resendApiKey: process.env.RESEND_API_KEY?.trim() || '',
   },
 
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',

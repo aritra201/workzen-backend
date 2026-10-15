@@ -12,6 +12,33 @@ const {
 
 let transporter;
 
+function useResendApi() {
+  return Boolean(env.mail.resendApiKey);
+}
+
+async function sendMailViaResend({ to, subject, html }) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.mail.resendApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: env.mail.fromAddress,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    }),
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = body?.message || body?.error || response.statusText;
+    throw new Error(`Resend API failed (${response.status}): ${detail}`);
+  }
+  return body;
+}
+
 function getTransporter() {
   if (!transporter) {
     if (!env.mail.host || !env.mail.user || !env.mail.password) {
@@ -35,6 +62,9 @@ function getTransporter() {
 }
 
 async function sendMail({ to, subject, html }) {
+  if (useResendApi()) {
+    return sendMailViaResend({ to, subject, html });
+  }
   const info = await getTransporter().sendMail({
     from: env.mail.fromAddress,
     to,
