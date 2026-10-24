@@ -181,12 +181,11 @@ async function googleAuthCompanyAdmin(idToken) {
 async function loginManual({ email, password }) {
   const user = await User.findOne({
     email: normalizeEmail(email),
-    auth_provider: AUTH_PROVIDER.LOCAL,
   }).select('+password_hash');
 
   const invalidCredentialsError = new AppError('Invalid email or password', 401);
 
-  if (!user) {
+  if (!user || !user.password_hash) {
     throw invalidCredentialsError;
   }
 
@@ -196,7 +195,10 @@ async function loginManual({ email, password }) {
   }
 
   if (!user.is_active) {
-    throw new AppError('Please verify your email with the OTP we sent before logging in', 403);
+    if (user.auth_provider === AUTH_PROVIDER.LOCAL) {
+      throw new AppError('Please verify your email with the OTP we sent before logging in', 403);
+    }
+    throw new AppError('Account is not active', 403);
   }
 
   return await issueAndPersistTokens(user);
@@ -219,7 +221,7 @@ async function loginGoogle(idToken) {
   }
 
   if (!user) {
-    throw new AppError('No account found for this Google identity', 404);
+    throw new AppError('You have not invited to Workzen yet', 404);
   }
   if (!user.is_active) {
     throw new AppError('Account is not active', 403);
@@ -247,7 +249,7 @@ async function refreshTokens(rawRefreshToken) {
 async function forgotPassword(email) {
   const user = await User.findOne({
     email: normalizeEmail(email),
-    auth_provider: AUTH_PROVIDER.LOCAL,
+    $or: [{ auth_provider: AUTH_PROVIDER.LOCAL }, { auth_provider: AUTH_PROVIDER.GOOGLE }],
   }).select('+password_reset_token_hash +password_reset_expires');
 
   if (!user) {
@@ -263,7 +265,7 @@ async function resetPasswordWithOtp({ email, otp, newPassword }) {
 
   const user = await User.findOne({
     email: normalizedEmail,
-    auth_provider: AUTH_PROVIDER.LOCAL,
+    $or: [{ auth_provider: AUTH_PROVIDER.LOCAL }, { auth_provider: AUTH_PROVIDER.GOOGLE }],
   }).select('+password_reset_token_hash +password_reset_expires');
 
   if (!user || !user.password_reset_token_hash) {
@@ -313,8 +315,14 @@ async function changePassword({ userId, currentPassword, newPassword }) {
   if (!user) {
     throw new AppError('User not found', 404);
   }
-  if (user.auth_provider !== AUTH_PROVIDER.LOCAL) {
-    throw new AppError('Password change is not available for Google sign-in accounts', 400);
+  if (user.auth_provider === AUTH_PROVIDER.GOOGLE && !user.password_hash) {
+    throw new AppError(
+      'No WorkZen password on this account — use Forgot password to create one, or sign in with Google',
+      400
+    );
+  }
+  if (user.auth_provider !== AUTH_PROVIDER.LOCAL && user.auth_provider !== AUTH_PROVIDER.GOOGLE) {
+    throw new AppError('Password change is not available for this account', 400);
   }
 
   const passwordMatches = await user.comparePassword(currentPassword);
