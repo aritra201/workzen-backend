@@ -14,6 +14,7 @@ const unlockRequestRoutes = require('./routes/unlockRequest.routes');
 const attendanceVerificationRoutes = require('./routes/attendanceVerification.routes');
 const payrollRoutes = require('./routes/payroll.routes');
 const activityLogRoutes = require('./routes/activityLog.routes');
+const healthRoutes = require('./routes/health.routes');
 const errorHandler = require('./helper/errorHandler.helper');
 const env = require('./config/env');
 
@@ -24,6 +25,8 @@ function createApp() {
   if (env.nodeEnv === 'production') {
     app.set('trust proxy', 1);
   }
+
+  app.use('/health', healthRoutes);
 
   const allowedOrigins = new Set(env.clientUrls);
 
@@ -53,8 +56,6 @@ function createApp() {
   );
   app.use(express.json());
   app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
-
-  app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
   app.use('/api/auth', authRoutes);
   app.use('/api/company', companyRoutes);

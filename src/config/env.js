@@ -66,5 +66,18 @@ module.exports = {
   // Planning §4.5: approved unlock stays editable for this many hours, then re-locks.
   unlockGraceHours: Number(process.env.UNLOCK_GRACE_HOURS) || 24,
 
+  keepAlive: (() => {
+    const explicit = process.env.KEEP_ALIVE_URL?.trim();
+    const base = process.env.PUBLIC_API_URL?.trim().replace(/\/$/, '');
+    const url = explicit || (base ? `${base}/health` : '');
+    const nodeEnv = process.env.NODE_ENV || 'development';
+    const enabled =
+      process.env.ENABLE_IN_PROCESS_KEEP_ALIVE === 'false'
+        ? false
+        : process.env.ENABLE_IN_PROCESS_KEEP_ALIVE === 'true' ||
+          (nodeEnv === 'production' && Boolean(url));
+    return { url, enabled };
+  })(),
+
   required, // exported so server.js can assert secrets exist before boot
 };

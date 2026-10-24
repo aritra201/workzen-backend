@@ -1,0 +1,26 @@
+# Optional Render Blueprint: web API + cron that pings /health every 14 minutes (free-tier idle sleep).
+# Set PUBLIC_API_URL on both services to your public API base (e.g. https://api.workzenapps.in).
+
+services:
+  - type: web
+    name: workzen-api
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: ENABLE_IN_PROCESS_KEEP_ALIVE
+        value: "true"
+
+  - type: cron
+    name: workzen-keep-alive
+    runtime: node
+    schedule: "*/14 * * * *"
+    buildCommand: npm install
+    startCommand: npm run keep-alive
+    envVars:
+      - key: PUBLIC_API_URL
+        sync: false

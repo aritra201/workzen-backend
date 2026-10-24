@@ -3,6 +3,7 @@ const connectDB = require('./config/db');
 const env = require('./config/env');
 const { startAttendanceLockJob } = require('./jobs/attendanceLock.job');
 const { startAttendanceProvisionJob } = require('./jobs/attendanceProvision.job');
+const { startRenderKeepAliveJob } = require('./jobs/renderKeepAlive.job');
 
 async function start() {
   // Fail fast if critical secrets are missing, rather than booting into a
@@ -43,6 +44,7 @@ async function start() {
 
   startAttendanceLockJob();
   startAttendanceProvisionJob();
+  startRenderKeepAliveJob();
 
   const app = createApp();
   app.listen(env.port, () => {
