@@ -1,4 +1,5 @@
 const authService = require('../service/auth.service');
+const { User } = require('../models');
 const { resolveMemberships } = require('../service/membershipContext.service');
 const { AppError } = require('../utils/AppError');
 const { parseOtpInput } = require('../helper/otp.helper');
@@ -116,15 +117,19 @@ async function resetPassword(req, res) {
 }
 
 async function me(req, res) {
-  const { _id, email, auth_provider, is_active, is_email_verified } = req.user;
-  const memberships = await resolveMemberships(_id);
+  const user = await User.findById(req.user._id).select('+password_hash');
+  if (!user) {
+    throw new AppError('User no longer exists', 401);
+  }
+  const memberships = await resolveMemberships(user._id);
 
   res.status(200).json({
-    _id,
-    email,
-    auth_provider,
-    is_active,
-    is_email_verified,
+    _id: user._id,
+    email: user.email,
+    auth_provider: user.auth_provider,
+    is_active: user.is_active,
+    is_email_verified: user.is_email_verified,
+    has_password: Boolean(user.password_hash),
     memberships,
   });
 }
