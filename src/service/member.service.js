@@ -440,6 +440,80 @@ async function resendMemberInvitation({ company, adminUserId, email }) {
   });
 }
 
+const NON_ACCEPTED_INVITE_STATUSES = [
+  INVITATION_STATUS.PENDING,
+  INVITATION_STATUS.EXPIRED,
+  INVITATION_STATUS.REVOKED,
+];
+
+/**
+ * Admin removes a mistaken invite before acceptance — deletes invitation rows and pending profile.
+ */
+async function cancelMemberInvitation({ company, adminUserId, email }) {
+  const invitedEmail = normalizeInviteEmail(email);
+
+  const member = await MemberProfile.findOne({
+    company_id: company._id,
+    member_email: invitedEmail,
+  });
+
+  if (member?.user_id) {
+    throw new AppError(
+      'This invitation was already accepted — deactivate the member instead',
+      409
+    );
+  }
+
+  const acceptedInvite = await Invitation.exists({
+    company_id: company._id,
+    invited_email: invitedEmail,
+    invited_role: INVITATION_ROLE.MEMBER,
+    status: INVITATION_STATUS.ACCEPTED,
+  });
+  if (acceptedInvite) {
+    throw new AppError('This invitation was already accepted', 409);
+  }
+
+  const deleteResult = await Invitation.deleteMany({
+    company_id: company._id,
+    invited_email: invitedEmail,
+    invited_role: INVITATION_ROLE.MEMBER,
+    status: { $in: NON_ACCEPTED_INVITE_STATUSES },
+  });
+
+  let profileRemoved = false;
+  if (member && !member.user_id) {
+    await MemberProfile.deleteOne({ _id: member._id });
+    profileRemoved = true;
+  }
+
+  if (deleteResult.deletedCount === 0 && !profileRemoved) {
+    throw new AppError('No pending invitation found for this email', 404);
+  }
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: adminUserId,
+    actorRole: COMPANY_ROLE.ADMIN,
+    actionType: 'invitation.cancelled',
+    targetType: 'Invitation',
+    targetId: member?._id ?? company._id,
+    metadata: {
+      invited_email: invitedEmail,
+      invited_role: INVITATION_ROLE.MEMBER,
+      invitations_deleted: deleteResult.deletedCount,
+      profile_removed: profileRemoved,
+    },
+  });
+
+  return {
+    message: 'Invitation cancelled',
+    email: invitedEmail,
+    invitationsDeleted: deleteResult.deletedCount,
+    profileRemoved,
+  };
+}
+
 /**
  * FR-024: deactivate or reactivate a member.
  */
@@ -494,5 +568,6 @@ module.exports = {
   uploadMyMemberProfilePicture,
   inviteMember,
   resendMemberInvitation,
+  cancelMemberInvitation,
   setMemberActive,
 };

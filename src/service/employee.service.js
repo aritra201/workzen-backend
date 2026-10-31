@@ -1,4 +1,4 @@
-const { User, EmployeeProfile, Invitation } = require('../models');
+const { User, EmployeeProfile, Invitation, Attendance } = require('../models');
 const {
   COMPANY_ROLE,
   INVITATION_ROLE,
@@ -275,6 +275,87 @@ async function resendEmployeeInvitation({ company, adminUserId, employeeEmail })
     employeeProfile,
     actionType: 'invitation.resent',
   });
+}
+
+const NON_ACCEPTED_INVITE_STATUSES = [
+  INVITATION_STATUS.PENDING,
+  INVITATION_STATUS.EXPIRED,
+  INVITATION_STATUS.REVOKED,
+];
+
+async function cancelEmployeeInvitation({ company, adminUserId, employeeEmail }) {
+  const email = normalizeEmployeeEmail(employeeEmail);
+
+  const employeeProfile = await EmployeeProfile.findOne({
+    company_id: company._id,
+    employee_email: email,
+  });
+
+  if (employeeProfile?.user_id) {
+    throw new AppError(
+      'This invitation was already accepted — deactivate the employee instead',
+      409
+    );
+  }
+
+  const acceptedInvite = await Invitation.exists({
+    company_id: company._id,
+    invited_email: email,
+    invited_role: INVITATION_ROLE.EMPLOYEE,
+    status: INVITATION_STATUS.ACCEPTED,
+  });
+  if (acceptedInvite) {
+    throw new AppError('This invitation was already accepted', 409);
+  }
+
+  if (employeeProfile) {
+    const hasAttendance = await Attendance.exists({ employee_id: employeeProfile._id });
+    if (hasAttendance) {
+      throw new AppError(
+        'Cannot cancel this invitation — attendance records exist for this employee',
+        409
+      );
+    }
+  }
+
+  const deleteResult = await Invitation.deleteMany({
+    company_id: company._id,
+    invited_email: email,
+    invited_role: INVITATION_ROLE.EMPLOYEE,
+    status: { $in: NON_ACCEPTED_INVITE_STATUSES },
+  });
+
+  let profileRemoved = false;
+  if (employeeProfile && !employeeProfile.user_id) {
+    await EmployeeProfile.deleteOne({ _id: employeeProfile._id });
+    profileRemoved = true;
+  }
+
+  if (deleteResult.deletedCount === 0 && !profileRemoved) {
+    throw new AppError('No pending invitation found for this email', 404);
+  }
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: adminUserId,
+    actorRole: COMPANY_ROLE.ADMIN,
+    actionType: 'invitation.cancelled',
+    targetType: 'Invitation',
+    targetId: employeeProfile?._id ?? company._id,
+    metadata: {
+      invited_email: email,
+      invited_role: INVITATION_ROLE.EMPLOYEE,
+      invitations_deleted: deleteResult.deletedCount,
+      profile_removed: profileRemoved,
+    },
+  });
+
+  return {
+    message: 'Invitation cancelled',
+    employeeEmail: email,
+    invitationsDeleted: deleteResult.deletedCount,
+    profileRemoved,
+  };
 }
 
 const DEFAULT_LIST_LIMIT = 20;
@@ -611,6 +692,7 @@ module.exports = {
   listPresentEmployees,
   inviteEmployee,
   resendEmployeeInvitation,
+  cancelEmployeeInvitation,
   setEmployeeActive,
   updateEmployeeDailyAmount,
   getMyEmployeeProfile,

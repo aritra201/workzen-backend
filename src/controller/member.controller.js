@@ -77,6 +77,21 @@ async function resendInvite(req, res) {
   });
 }
 
+async function cancelInvite(req, res) {
+  const { email } = req.body;
+  if (!email) {
+    throw new AppError('email is required', 400);
+  }
+
+  const result = await memberService.cancelMemberInvitation({
+    company: req.company,
+    adminUserId: req.user._id,
+    email,
+  });
+
+  res.status(200).json(result);
+}
+
 async function updateStatus(req, res) {
   const { isActive } = req.body;
   const member = await memberService.setMemberActive({
@@ -96,5 +111,6 @@ module.exports = {
   list,
   invite,
   resendInvite,
+  cancelInvite,
   updateStatus,
 };

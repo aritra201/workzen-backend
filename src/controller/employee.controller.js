@@ -113,6 +113,21 @@ async function resendInvite(req, res) {
   });
 }
 
+async function cancelInvite(req, res) {
+  const { employeeEmail } = req.body;
+  if (!employeeEmail) {
+    throw new AppError('employeeEmail is required', 400);
+  }
+
+  const result = await employeeService.cancelEmployeeInvitation({
+    company: req.company,
+    adminUserId: req.user._id,
+    employeeEmail,
+  });
+
+  res.status(200).json(result);
+}
+
 async function updateStatus(req, res) {
   const { isActive, dailyAmount } = req.body;
   const hasStatus = Object.prototype.hasOwnProperty.call(req.body, 'isActive');
@@ -154,5 +169,6 @@ module.exports = {
   listDropdown,
   invite,
   resendInvite,
+  cancelInvite,
   updateStatus,
 };
