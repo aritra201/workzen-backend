@@ -5,7 +5,6 @@ const { parseEmployeeIdsFromQuery } = require('../helper/employeeIdQuery.helper'
 const {
   FIXED_SHIFT_KEYS,
   listMarkedHalfShiftEntries,
-  parseHalfShiftSlot,
 } = require('../helper/employeeShiftKeys.helper');
 const { attendanceDocumentHasMarkedShift } = require('../helper/attendanceMarked.helper');
 const {
@@ -24,18 +23,16 @@ const SHIFT_PAYROLL_LABELS = {
   [SHIFT_KEY.NIGHT]: 'Night',
   [SHIFT_KEY.EXTRA_DAY]: 'Extra Day',
   [SHIFT_KEY.EXTRA_NIGHT]: 'Extra Night',
+  [SHIFT_KEY.HALF_SHIFT_DAY]: 'Half Shift Day',
+  [SHIFT_KEY.HALF_SHIFT_NIGHT]: 'Half Shift Night',
 };
 
 function shiftKeyToPayrollLabel(shiftKey, slot) {
-  if (slot != null) {
-    return `Half ${slot}`;
-  }
   if (SHIFT_PAYROLL_LABELS[shiftKey]) {
     return SHIFT_PAYROLL_LABELS[shiftKey];
   }
-  const halfSlot = parseHalfShiftSlot(shiftKey);
-  if (halfSlot) {
-    return `Half ${halfSlot}`;
+  if (slot != null) {
+    return `Half ${slot}`;
   }
   return shiftKey;
 }
@@ -81,14 +78,14 @@ function collectMarkedPayrollShifts(attendance) {
     });
   }
 
-  for (const { slot, shiftKey, shift } of listMarkedHalfShiftEntries(attendance)) {
+  for (const { shiftKey, shift } of listMarkedHalfShiftEntries(attendance)) {
     const amount =
       shift.amount != null && !Number.isNaN(Number(shift.amount))
         ? Number(shift.amount)
         : null;
     lines.push({
       shiftKey,
-      shiftLabel: shiftKeyToPayrollLabel(shiftKey, slot),
+      shiftLabel: shiftKeyToPayrollLabel(shiftKey),
       amount,
     });
   }

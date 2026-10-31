@@ -12,14 +12,14 @@ function shiftKeyFromRequest(req) {
   const raw = req.headers['shift-key'] || req.headers['x-shift-key'];
   if (!raw) {
     throw new AppError(
-      'Shift-Key header is required (day, night, extra_day, extra_night, or half_shift_1-half_shift_4)',
+      'Shift-Key header is required (day, night, extra_day, extra_night, half_shift_day, or half_shift_night)',
       400
     );
   }
   const shiftKey = String(raw).trim().toLowerCase();
   if (!ALL_SHIFT_KEYS.has(shiftKey)) {
     throw new AppError(
-      'Shift-Key must be day, night, extra_day, extra_night, or half_shift_1 through half_shift_4',
+      'Shift-Key must be day, night, extra_day, extra_night, half_shift_day, or half_shift_night',
       400
     );
   }
@@ -50,7 +50,7 @@ function shiftKeyFromBody(req) {
   const raw = req.body?.shiftKey ?? req.body?.shift_key;
   if (!raw) {
     throw new AppError(
-      'shiftKey is required in the request body (day, night, extra_day, extra_night, or half_shift_1-half_shift_4)',
+      'shiftKey is required in the request body (day, night, extra_day, extra_night, half_shift_day, or half_shift_night)',
       400
     );
   }

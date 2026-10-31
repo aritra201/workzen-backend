@@ -33,8 +33,10 @@ const {
 } = require('./attendance.service');
 const {
   FIXED_SHIFT_KEYS,
+  HALF_SHIFT_KEYS,
   accessEmployeeShift,
   listMarkedHalfShiftEntries,
+  prepareAttendanceHalfShifts,
 } = require('../helper/employeeShiftKeys.helper');
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -74,15 +76,13 @@ function attendanceMatchesStatusFilter(attendance, statusFilter) {
     return true;
   }
   if (
-    FIXED_SHIFT_KEYS.some((key) =>
+    ALL_LIST_SHIFT_KEYS.some((key) =>
       shiftMatchesStatusFilter(attendance.shifts[key], key, statusFilter)
     )
   ) {
     return true;
   }
-  return listMarkedHalfShiftEntries(attendance).some(({ shiftKey, shift }) =>
-    shiftMatchesStatusFilter(shift, shiftKey, statusFilter)
-  );
+  return false;
 }
 
 function validateReplyText(text) {
@@ -159,8 +159,16 @@ function shiftKeyToResponseKey(shiftKey) {
   if (shiftKey === SHIFT_KEY.EXTRA_NIGHT) {
     return 'extraNight';
   }
+  if (shiftKey === SHIFT_KEY.HALF_SHIFT_DAY) {
+    return 'halfShiftDay';
+  }
+  if (shiftKey === SHIFT_KEY.HALF_SHIFT_NIGHT) {
+    return 'halfShiftNight';
+  }
   return shiftKey;
 }
+
+const ALL_LIST_SHIFT_KEYS = [...FIXED_SHIFT_KEYS, ...HALF_SHIFT_KEYS];
 
 function serializeEmployeeShift(attendance, shiftKey) {
   const { shift } = accessEmployeeShift(attendance, shiftKey);
@@ -182,9 +190,8 @@ function employeeShiftsWithKeys(attendance) {
     night: serializeEmployeeShift(attendance, SHIFT_KEY.NIGHT),
     extraDay: serializeEmployeeShift(attendance, SHIFT_KEY.EXTRA_DAY),
     extraNight: serializeEmployeeShift(attendance, SHIFT_KEY.EXTRA_NIGHT),
-    halfShifts: listMarkedHalfShiftEntries(attendance)
-      .map(({ shiftKey }) => serializeEmployeeShift(attendance, shiftKey))
-      .filter(Boolean),
+    halfShiftDay: serializeEmployeeShift(attendance, SHIFT_KEY.HALF_SHIFT_DAY),
+    halfShiftNight: serializeEmployeeShift(attendance, SHIFT_KEY.HALF_SHIFT_NIGHT),
   };
 }
 
@@ -234,6 +241,7 @@ function companyAttendanceBasePayload(attendance, dateKey, timezone, employee) {
 }
 
 function serializeListItem(attendance, employee, timezone) {
+  prepareAttendanceHalfShifts(attendance);
   const dateKey = utcDateToDateKey(attendance.date);
   return {
     attendanceId: attendance._id,
@@ -254,11 +262,14 @@ function serializeListItem(attendance, employee, timezone) {
       night: summarizeShiftForList(attendance.shifts.night, SHIFT_KEY.NIGHT),
       extraDay: summarizeShiftForList(attendance.shifts.extra_day, SHIFT_KEY.EXTRA_DAY),
       extraNight: summarizeShiftForList(attendance.shifts.extra_night, SHIFT_KEY.EXTRA_NIGHT),
-      halfShifts: listMarkedHalfShiftEntries(attendance).map(({ slot, shiftKey, shift }) => ({
-        slot,
-        shiftKey,
-        ...summarizeShiftForList(shift, shiftKey),
-      })),
+      halfShiftDay: summarizeShiftForList(
+        attendance.shifts.half_shift_day,
+        SHIFT_KEY.HALF_SHIFT_DAY
+      ),
+      halfShiftNight: summarizeShiftForList(
+        attendance.shifts.half_shift_night,
+        SHIFT_KEY.HALF_SHIFT_NIGHT
+      ),
     },
     updatedAt: attendance.updated_at,
   };
@@ -273,6 +284,7 @@ async function loadCompanyAttendance(companyId, attendanceId) {
   if (!attendance) {
     throw new AppError('Attendance record not found', 404);
   }
+  prepareAttendanceHalfShifts(attendance);
   return attendance;
 }
 
@@ -487,17 +499,19 @@ async function getCompanyAttendanceDetail(company, attendanceId, { shiftKey } = 
     night: null,
     extraDay: null,
     extraNight: null,
-    halfShifts: [],
+    halfShiftDay: null,
+    halfShiftNight: null,
   };
   const commentThreads = {
     day: null,
     night: null,
     extraDay: null,
     extraNight: null,
-    halfShifts: [],
+    halfShiftDay: null,
+    halfShiftNight: null,
   };
 
-  for (const key of FIXED_SHIFT_KEYS) {
+  for (const key of ALL_LIST_SHIFT_KEYS) {
     if (!shiftIsVisibleToCompany(attendance.shifts[key])) {
       continue;
     }
@@ -509,18 +523,6 @@ async function getCompanyAttendanceDetail(company, attendanceId, { shiftKey } = 
       threadMap
     );
   }
-
-  const halfEntries = listMarkedHalfShiftEntries(attendance);
-  shiftsPayload.halfShifts = halfEntries.map(({ slot, shiftKey: halfKey, shift }) => ({
-    slot,
-    shiftKey: halfKey,
-    ...serializeAdminRegularShift(shift, halfKey),
-  }));
-  commentThreads.halfShifts = await Promise.all(
-    halfEntries.map(({ shiftKey: halfKey }) =>
-      resolveCommentThreadForShift(attendance, halfKey, threadMap)
-    )
-  );
 
   return {
     ...base,
@@ -667,10 +669,11 @@ async function getEmployeeAttendanceDetail(employeeProfile, attendanceId, { shif
     night: null,
     extraDay: null,
     extraNight: null,
-    halfShifts: [],
+    halfShiftDay: null,
+    halfShiftNight: null,
   };
 
-  for (const key of FIXED_SHIFT_KEYS) {
+  for (const key of ALL_LIST_SHIFT_KEYS) {
     if (!shiftIsVisibleToCompany(attendance.shifts[key])) {
       continue;
     }
@@ -681,13 +684,6 @@ async function getEmployeeAttendanceDetail(employeeProfile, attendanceId, { shif
       threadMap
     );
   }
-
-  const halfEntries = listMarkedHalfShiftEntries(attendance);
-  commentThreads.halfShifts = await Promise.all(
-    halfEntries.map(({ shiftKey: halfKey }) =>
-      resolveCommentThreadForShift(attendance, halfKey, threadMap)
-    )
-  );
 
   return {
     ...base,

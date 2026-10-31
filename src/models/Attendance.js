@@ -79,16 +79,12 @@ const attendanceSchema = new mongoose.Schema(
       night: { type: shiftSchema, default: () => ({}) },
       extra_day: { type: extraShiftSchema, default: () => ({}) },
       extra_night: { type: extraShiftSchema, default: () => ({}) },
-      /** Up to 4 sequential half shifts per day (slot 1 → 4). */
+      half_shift_day: { type: shiftSchema, default: () => ({}) },
+      half_shift_night: { type: shiftSchema, default: () => ({}) },
+      /** @deprecated legacy rows — migrated to half_shift_day / half_shift_night on save */
       half_shifts: {
         type: [shiftSchema],
         default: () => [],
-        validate: {
-          validator(arr) {
-            return !arr || arr.length <= 4;
-          },
-          message: 'At most 4 half shifts per attendance day',
-        },
       },
     },
     // Set when this record exists because of an approved UnlockRequest for a
@@ -118,6 +114,13 @@ attendanceSchema.index({ company_id: 1, date: 1 });
  *
  * Employee shift cancel (POST …/shifts/cancel) sets `doc.$locals.allowShiftCancel = true`.
  */
+attendanceSchema.pre('save', function migrateLegacyHalfShifts() {
+  const { migrateLegacyHalfShiftArray } = require('../helper/employeeShiftKeys.helper');
+  if (migrateLegacyHalfShiftArray(this)) {
+    this.markModified('shifts');
+  }
+});
+
 // FR-042: confirmed shifts cannot be unmarked except via employee cancel endpoint.
 attendanceSchema.pre('save', async function preventShiftUnconfirm() {
   if (this.isNew || !this.isModified('shifts') || this.$locals.allowShiftCancel) {
@@ -127,13 +130,13 @@ attendanceSchema.pre('save', async function preventShiftUnconfirm() {
   const existing = await this.constructor
     .findById(this._id)
     .select(
-      'shifts.day.marked shifts.night.marked shifts.extra_day.marked shifts.extra_night.marked shifts.half_shifts.marked'
+      'shifts.day.marked shifts.night.marked shifts.extra_day.marked shifts.extra_night.marked shifts.half_shift_day.marked shifts.half_shift_night.marked shifts.half_shifts.marked'
     );
   if (!existing) {
     return;
   }
 
-  for (const key of ['day', 'night', 'extra_day', 'extra_night']) {
+  for (const key of ['day', 'night', 'extra_day', 'extra_night', 'half_shift_day', 'half_shift_night']) {
     if (existing.shifts?.[key]?.marked && !this.shifts?.[key]?.marked) {
       throw new Error('Confirmed shifts cannot be unchecked');
     }

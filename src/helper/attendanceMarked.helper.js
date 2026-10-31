@@ -5,6 +5,8 @@ const MARKED_SHIFT_MONGO_OR = [
   { 'shifts.night.marked': true },
   { 'shifts.extra_day.marked': true },
   { 'shifts.extra_night.marked': true },
+  { 'shifts.half_shift_day.marked': true },
+  { 'shifts.half_shift_night.marked': true },
   { 'shifts.half_shifts.marked': true },
 ];
 
@@ -22,6 +24,9 @@ function attendanceDocumentHasMarkedShift(attendance) {
     if (shifts[key]?.marked) {
       return true;
     }
+  }
+  if (shifts.half_shift_day?.marked || shifts.half_shift_night?.marked) {
+    return true;
   }
   return (shifts.half_shifts || []).some((half) => Boolean(half?.marked));
 }

@@ -33,10 +33,8 @@ const SHIFT_KEY = Object.freeze({
   NIGHT: 'night',
   EXTRA_DAY: 'extra_day',
   EXTRA_NIGHT: 'extra_night',
-  HALF_SHIFT_1: 'half_shift_1',
-  HALF_SHIFT_2: 'half_shift_2',
-  HALF_SHIFT_3: 'half_shift_3',
-  HALF_SHIFT_4: 'half_shift_4',
+  HALF_SHIFT_DAY: 'half_shift_day',
+  HALF_SHIFT_NIGHT: 'half_shift_night',
 });
 
 const SHIFT_STATUS = Object.freeze({
