@@ -26,6 +26,7 @@ const {
   snapshotHalfShiftMarks,
   assertHalfShiftMarksNotReverted,
   assertSequentialHalfShiftConfirm,
+  assertSequentialHalfShiftCancel,
   listMarkedHalfShiftEntries,
 } = require('../helper/employeeShiftKeys.helper');
 const {
@@ -259,7 +260,7 @@ function snapshotShiftMarks(attendance) {
   };
 }
 
-/** FR-042: once marked true, employee cannot revert to false. */
+/** FR-042: bulk saves cannot revert marks — use cancelTodayShift for employee undo. */
 function assertShiftMarksNotReverted(attendance, beforeMarks) {
   for (const key of [
     SHIFT_KEY.DAY,
@@ -575,6 +576,88 @@ async function confirmTodayShift({
     : isExtraShiftKey(shiftKey)
       ? 'extra_shift.confirmed'
       : 'attendance.shift_confirmed';
+
+  await writeActivityLog({
+    companyId: company._id,
+    actorUserId: employeeProfile.user_id,
+    actorRole: COMPANY_ROLE.EMPLOYEE,
+    actionType,
+    targetType: 'Attendance',
+    targetId: attendance._id,
+    metadata: { date: dateKey, shift_key: shiftKey },
+  });
+
+  return serializeAttendance(attendance, dateKey, timezone);
+}
+
+function defaultShiftStatusForKey(shiftKey) {
+  return isExtraShiftKey(shiftKey)
+    ? SHIFT_STATUS.AWAITING_ATTENDANCE
+    : SHIFT_STATUS.AWAITING_SUBMISSION;
+}
+
+function resetEmployeeShiftToUnmarked(shift, shiftKey) {
+  shift.marked = false;
+  shift.amount = undefined;
+  shift.comment = undefined;
+  shift.work_picture = [];
+  shift.geo_location = undefined;
+  shift.status = defaultShiftStatusForKey(shiftKey);
+  shift.verified_by = undefined;
+  shift.verified_at = undefined;
+}
+
+function assertEmployeeCanCancelShift(shift, shiftKey) {
+  if (!shift?.marked) {
+    throw new AppError('This shift is not confirmed', 400);
+  }
+  const effectiveStatus = resolveShiftStatus(shift, shiftKey);
+  if (
+    effectiveStatus === SHIFT_STATUS.VERIFIED ||
+    effectiveStatus === SHIFT_STATUS.REJECTED
+  ) {
+    throw new AppError('Verified or rejected shifts cannot be cancelled', 400);
+  }
+}
+
+/**
+ * Employee undo for a wrongly confirmed shift (before admin verification).
+ */
+async function cancelTodayShift({ employeeProfile, shiftKey, dateKey: requestedDateKey }) {
+  assertEmployeeShiftKey(shiftKey);
+  const { attendance, dateKey, timezone, company } = await loadEmployeeAttendanceContext(
+    employeeProfile,
+    requestedDateKey,
+    { writable: true }
+  );
+
+  const halfSlot = parseHalfShiftSlot(shiftKey);
+  if (halfSlot) {
+    assertSequentialHalfShiftCancel(attendance, halfSlot);
+  }
+
+  const { shift, markModified } = accessEmployeeShift(attendance, shiftKey);
+  assertEmployeeCanCancelShift(shift, shiftKey);
+
+  const pictureUrls = [...(shift.work_picture || [])];
+  resetEmployeeShiftToUnmarked(shift, shiftKey);
+  markModified();
+  attendance.$locals.allowShiftCancel = true;
+  await attendance.save();
+
+  if (pictureUrls.length) {
+    try {
+      await deleteImagesByUrls(pictureUrls);
+    } catch {
+      // Attendance already saved; orphan cleanup is best-effort.
+    }
+  }
+
+  const actionType = halfSlot
+    ? 'half_shift.cancelled'
+    : isExtraShiftKey(shiftKey)
+      ? 'extra_shift.cancelled'
+      : 'attendance.shift_cancelled';
 
   await writeActivityLog({
     companyId: company._id,
@@ -1019,6 +1102,7 @@ module.exports = {
   serializeRegularShift,
   serializeExtraShift,
   confirmTodayShift,
+  cancelTodayShift,
   submitTodayShift,
   updateTodayShiftDetails,
   uploadTodayWorkPictures,

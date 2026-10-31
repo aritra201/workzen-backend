@@ -102,6 +102,16 @@ async function confirmShift(req, res) {
   res.status(200).json(data);
 }
 
+async function cancelShift(req, res) {
+  const shiftKey = shiftKeyFromRequest(req);
+  const data = await attendanceService.cancelTodayShift({
+    employeeProfile: employeeFromRequest(req),
+    shiftKey,
+    dateKey: attendanceDateFromRequest(req),
+  });
+  res.status(200).json(data);
+}
+
 async function submitShift(req, res) {
   const shiftKey = shiftKeyFromRequest(req);
   const { amount, comment, geoLocation } = req.body;
@@ -214,6 +224,7 @@ module.exports = {
   listMyAttendance,
   getMyAttendanceRecord,
   confirmShift,
+  cancelShift,
   submitShift,
   updateShiftDetails,
   uploadWorkPicture,

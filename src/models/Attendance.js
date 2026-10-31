@@ -115,20 +115,34 @@ attendanceSchema.index({ company_id: 1, date: 1 });
  *
  * Callers that are performing a deliberate, unlock-request-authorized edit
  * must set `doc.$locals.allowLockedEdit = true` before saving.
+ *
+ * Employee shift cancel (POST …/shifts/cancel) sets `doc.$locals.allowShiftCancel = true`.
  */
-// FR-042: confirmed regular shifts cannot be unmarked.
+// FR-042: confirmed shifts cannot be unmarked except via employee cancel endpoint.
 attendanceSchema.pre('save', async function preventShiftUnconfirm() {
-  if (this.isNew || !this.isModified('shifts')) {
+  if (this.isNew || !this.isModified('shifts') || this.$locals.allowShiftCancel) {
     return;
   }
 
-  const existing = await this.constructor.findById(this._id).select('shifts.day.marked shifts.night.marked');
+  const existing = await this.constructor
+    .findById(this._id)
+    .select(
+      'shifts.day.marked shifts.night.marked shifts.extra_day.marked shifts.extra_night.marked shifts.half_shifts.marked'
+    );
   if (!existing) {
     return;
   }
 
-  for (const key of ['day', 'night']) {
+  for (const key of ['day', 'night', 'extra_day', 'extra_night']) {
     if (existing.shifts?.[key]?.marked && !this.shifts?.[key]?.marked) {
+      throw new Error('Confirmed shifts cannot be unchecked');
+    }
+  }
+
+  const beforeHalf = existing.shifts?.half_shifts || [];
+  const afterHalf = this.shifts?.half_shifts || [];
+  for (let i = 0; i < beforeHalf.length; i++) {
+    if (beforeHalf[i]?.marked && !afterHalf[i]?.marked) {
       throw new Error('Confirmed shifts cannot be unchecked');
     }
   }

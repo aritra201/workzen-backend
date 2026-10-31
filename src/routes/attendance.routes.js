@@ -15,6 +15,8 @@ router.get('/me/today', employeeAttendance, asyncHandler(attendanceController.ge
 
 router.post('/me/today/shifts/confirm', employeeAttendance, asyncHandler(attendanceController.confirmShift));
 
+router.post('/me/today/shifts/cancel', employeeAttendance, asyncHandler(attendanceController.cancelShift));
+
 router.post(
   '/me/today/shifts/work-pictures',
   handleWorkPictureUpload,

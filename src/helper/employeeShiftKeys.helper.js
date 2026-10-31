@@ -80,6 +80,17 @@ function assertSequentialHalfShiftConfirm(attendance, slot) {
   }
 }
 
+/** Cancel the most recently confirmed half shift first (reverse of confirm order). */
+function assertSequentialHalfShiftCancel(attendance, slot) {
+  const markedCount = countMarkedHalfShifts(attendance);
+  if (slot !== markedCount) {
+    throw new AppError(
+      `Cancel Half Shift ${markedCount} first (undo your most recent half shift)`,
+      400
+    );
+  }
+}
+
 /**
  * Mutable shift reference for fixed keys or half_shift_N slots.
  */
@@ -142,6 +153,7 @@ module.exports = {
   ensureHalfShiftSlot,
   countMarkedHalfShifts,
   assertSequentialHalfShiftConfirm,
+  assertSequentialHalfShiftCancel,
   accessEmployeeShift,
   snapshotHalfShiftMarks,
   assertHalfShiftMarksNotReverted,
