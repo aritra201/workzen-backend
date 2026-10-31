@@ -126,6 +126,7 @@ function serializePayrollListItem(attendance, employee) {
         }
       : { employeeId: attendance.employee_id },
     shifts: shiftLines,
+    shiftCount: shiftLines.length,
     dayTotal,
     updatedAt: attendance.updated_at,
   };

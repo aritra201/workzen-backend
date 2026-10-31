@@ -21,20 +21,26 @@ function buildPayrollCsv({ items, summary, startDate, endDate }) {
     'Employee Name',
     'Employee Email',
     'Date',
+    'Shift count',
     'Shift',
     'Amount (INR)',
     'Day Total (INR)',
   ];
+  const emptyCells = header.map(() => '');
   const lines = [header.map(escapeCsvCell).join(',')];
 
   for (const item of items) {
     const name = item.employee?.name ?? '';
     const email = item.employee?.email ?? '';
     const dayTotal = formatAmountForCsv(item.dayTotal);
+    const shiftCount =
+      item.shiftCount != null && !Number.isNaN(Number(item.shiftCount))
+        ? Number(item.shiftCount)
+        : item.shifts?.length ?? 0;
 
     if (!item.shifts?.length) {
       lines.push(
-        [name, email, item.date, '', '', dayTotal].map(escapeCsvCell).join(',')
+        [name, email, item.date, shiftCount, '', '', dayTotal].map(escapeCsvCell).join(',')
       );
       continue;
     }
@@ -45,6 +51,7 @@ function buildPayrollCsv({ items, summary, startDate, endDate }) {
           name,
           email,
           item.date,
+          shiftCount,
           shift.shiftLabel,
           formatAmountForCsv(shift.amount),
           dayTotal,
@@ -57,19 +64,19 @@ function buildPayrollCsv({ items, summary, startDate, endDate }) {
 
   lines.push('');
   lines.push(
-    ['Report period', `${startDate} to ${endDate}`, '', '', '', ''].map(escapeCsvCell).join(',')
+    ['Report period', `${startDate} to ${endDate}`, ...emptyCells.slice(2)].map(escapeCsvCell).join(',')
   );
   if (summary) {
     lines.push(
-      ['Grand total (INR)', formatAmountForCsv(summary.grandTotal), '', '', '', ''].map(
+      ['Grand total (INR)', formatAmountForCsv(summary.grandTotal), ...emptyCells.slice(2)].map(
         escapeCsvCell
       ).join(',')
     );
     lines.push(
-      ['Marked days', summary.recordCount ?? '', '', '', '', ''].map(escapeCsvCell).join(',')
+      ['Marked days', summary.recordCount ?? '', ...emptyCells.slice(2)].map(escapeCsvCell).join(',')
     );
     lines.push(
-      ['Confirmed shifts', summary.markedShiftCount ?? '', '', '', '', ''].map(escapeCsvCell).join(
+      ['Confirmed shifts', summary.markedShiftCount ?? '', ...emptyCells.slice(2)].map(escapeCsvCell).join(
         ','
       )
     );
