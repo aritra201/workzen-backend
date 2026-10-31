@@ -37,7 +37,7 @@ function resolveDateRangeFilter({
   let startDateKey = parseDateKeyInput(startDate, 'startDate');
 
   if (!allowFuture && endDateKey > todayKey) {
-    throw new AppError('endDate cannot be in the future', 400);
+    throw new AppError('End Date cannot be in the future', 400);
   }
 
   if (!startDateKey) {
@@ -48,11 +48,11 @@ function resolveDateRangeFilter({
   }
 
   if (startDateKey > endDateKey) {
-    throw new AppError('startDate must be on or before endDate', 400);
+    throw new AppError('Start Date must be on or before End Date', 400);
   }
 
   if (!allowFuture && startDateKey > todayKey) {
-    throw new AppError('startDate cannot be in the future', 400);
+    throw new AppError('Start Date cannot be in the future', 400);
   }
 
   return {
