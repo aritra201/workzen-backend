@@ -46,22 +46,31 @@ async function fcmFetch(path, { method = 'GET', body } = {}) {
   return parsed;
 }
 
-/** Maps WorkZen title/body/deep link to prod send-auto-notification templateDetails. */
+/** Standard text notification — omit icon/banner URLs so FCM does not show a big picture. */
 function templateDetailsFromVariables(templateVariables) {
   const tv = templateVariables && typeof templateVariables === 'object' ? templateVariables : {};
   const landing = tv.value_3 || env.fcm.webOrigin || env.clientUrl || '';
-  return {
+  const details = {
     title: tv.value_1 || 'WorkZen',
     content: tv.value_2 || '',
     landing_page_url: landing,
     primary_button_name: 'Open',
     primary_button_link: landing,
     primary_button_new_tab: 'Y',
-    notification_icon_link: tv.value_4 || env.fcm.notificationIconUrl || '',
-    banner_image_link: tv.value_5 || '',
     expire_in: env.fcm.expireInMinutes,
     is_active: true,
   };
+
+  const icon = (tv.value_4 || env.fcm.notificationIconUrl || '').trim();
+  const banner = (tv.value_5 || env.fcm.notificationBannerUrl || '').trim();
+  if (icon) {
+    details.notification_icon_link = icon;
+  }
+  if (banner) {
+    details.banner_image_link = banner;
+  }
+
+  return details;
 }
 
 /**
