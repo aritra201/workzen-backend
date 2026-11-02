@@ -79,5 +79,18 @@ module.exports = {
     return { url, enabled };
   })(),
 
+  fcm: {
+    enabled:
+      process.env.FCM_NOTIFICATIONS_ENABLED !== 'false' &&
+      process.env.FCM_ENABLED !== 'false',
+    apiBaseUrl: (process.env.FCM_BASE_URL || '').replace(/\/$/, ''),
+    channelId: Number(process.env.FCM_CHANNEL_ID) || 0,
+    templateId: Number(process.env.FCM_TEMPLATE_ID) || 0,
+    orgApiKey: (process.env.FCM_ORG_API_KEY || process.env.FCM_API_KEY || '').trim(),
+    orgApiSecret: (process.env.FCM_ORG_API_SECRET || process.env.FCM_API_SECRET || '').trim(),
+    expireInMinutes: Number(process.env.FCM_EXPIRE_IN_MINUTES) || 1440,
+    webOrigin: (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim().replace(/\/$/, ''),
+  },
+
   required, // exported so server.js can assert secrets exist before boot
 };

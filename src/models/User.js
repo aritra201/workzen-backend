@@ -47,6 +47,12 @@ const userSchema = new mongoose.Schema(
     password_reset_token_hash: { type: String, select: false },
     password_reset_expires: { type: Date, select: false },
     current_refresh_token_hash: { type: String, select: false },
+    /** Stable numeric id for LawSikho FCM subscriber ref_id (set on first push link). */
+    fcm_ref_id: { type: Number, sparse: true, unique: true, index: true },
+    /** FCM platform subscriber row ids (devices/browsers). */
+    fcm_subscriber_ids: { type: [Number], default: [] },
+    /** Firebase device tokens for targeted send-auto-notification (prod FCM API). */
+    fcm_tokens: { type: [String], default: [] },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, versionKey: false }
 );
