@@ -23,10 +23,11 @@ function buildTemplateVariables({ title, body, path }) {
     value_1: title,
     value_2: body,
     value_3: url,
+    value_4: env.fcm.notificationIconUrl || '',
   };
 }
 
-async function collectTokensForUserIds(userIds) {
+async function collectFcmTokensForUserIds(userIds) {
   const uniqueIds = [...new Set(userIds.map((id) => String(id)).filter(Boolean))];
   if (!uniqueIds.length) {
     return [];
@@ -50,7 +51,7 @@ async function notifyUserIds({ userIds, campaignName, title, body, path }) {
   }
 
   try {
-    const tokens = await collectTokensForUserIds(userIds);
+    const tokens = await collectFcmTokensForUserIds(userIds);
     if (!tokens.length) {
       return;
     }

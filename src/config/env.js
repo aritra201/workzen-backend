@@ -90,6 +90,10 @@ module.exports = {
     orgApiSecret: (process.env.FCM_ORG_API_SECRET || process.env.FCM_API_SECRET || '').trim(),
     expireInMinutes: Number(process.env.FCM_EXPIRE_IN_MINUTES) || 1440,
     webOrigin: (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim().replace(/\/$/, ''),
+    notificationIconUrl: (
+      process.env.FCM_NOTIFICATION_ICON_URL ||
+      'https://res.cloudinary.com/bv6ouc0g/image/upload/v1793614103/adaptive-icon.png'
+    ).trim(),
   },
 
   required, // exported so server.js can assert secrets exist before boot

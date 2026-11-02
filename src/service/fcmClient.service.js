@@ -46,7 +46,7 @@ async function fcmFetch(path, { method = 'GET', body } = {}) {
   return parsed;
 }
 
-/** Maps integration template variables (value_1/2/3…) to prod send-auto-notification body. */
+/** Maps WorkZen title/body/deep link to prod send-auto-notification templateDetails. */
 function templateDetailsFromVariables(templateVariables) {
   const tv = templateVariables && typeof templateVariables === 'object' ? templateVariables : {};
   const landing = tv.value_3 || env.fcm.webOrigin || env.clientUrl || '';
@@ -57,7 +57,7 @@ function templateDetailsFromVariables(templateVariables) {
     primary_button_name: 'Open',
     primary_button_link: landing,
     primary_button_new_tab: 'Y',
-    notification_icon_link: tv.value_4 || '',
+    notification_icon_link: tv.value_4 || env.fcm.notificationIconUrl || '',
     banner_image_link: tv.value_5 || '',
     expire_in: env.fcm.expireInMinutes,
     is_active: true,
@@ -65,15 +65,18 @@ function templateDetailsFromVariables(templateVariables) {
 }
 
 /**
- * Targeted push via prod FCM API: POST /send-auto-notification (tokens + templateDetails).
- * Content aligns with integration template 1643 variable slots (value_1, value_2, value_3).
+ * Prod FCM API only (see repo external.service.js — do not change that server):
+ * POST /send-auto-notification with tokens + templateDetails.
  */
 async function sendTemplateNotification({ name, tokens, templateVariables }) {
   if (!isFcmConfigured()) {
     return { skipped: true, reason: 'fcm_not_configured' };
   }
 
-  const uniqueTokens = [...new Set(tokens.map((t) => String(t).trim()).filter(Boolean))];
+  const tv =
+    templateVariables && typeof templateVariables === 'object' ? templateVariables : {};
+
+  const uniqueTokens = [...new Set((tokens || []).map((t) => String(t).trim()).filter(Boolean))];
   if (!uniqueTokens.length) {
     return { skipped: true, reason: 'no_tokens' };
   }
@@ -82,7 +85,7 @@ async function sendTemplateNotification({ name, tokens, templateVariables }) {
     name: name || `workzen_${Date.now()}`,
     status: 'sent',
     tokens: uniqueTokens,
-    templateDetails: templateDetailsFromVariables(templateVariables),
+    templateDetails: templateDetailsFromVariables(tv),
   };
 
   const result = await fcmFetch('/send-auto-notification', {
@@ -90,7 +93,7 @@ async function sendTemplateNotification({ name, tokens, templateVariables }) {
     body: payload,
   });
 
-  return { sent: true, fcmResponse: result };
+  return { sent: true, mode: 'send_auto_notification', fcmResponse: result };
 }
 
 async function linkFcmSubscriberProfile({ subscriberId, user, displayName }) {
