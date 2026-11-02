@@ -14,6 +14,7 @@ const unlockRequestRoutes = require('./routes/unlockRequest.routes');
 const attendanceVerificationRoutes = require('./routes/attendanceVerification.routes');
 const payrollRoutes = require('./routes/payroll.routes');
 const activityLogRoutes = require('./routes/activityLog.routes');
+const fcmRoutes = require('./routes/fcm.routes');
 const healthRoutes = require('./routes/health.routes');
 const errorHandler = require('./helper/errorHandler.helper');
 const env = require('./config/env');
@@ -68,6 +69,7 @@ function createApp() {
   app.use('/api/company-attendance', attendanceVerificationRoutes);
   app.use('/api/payroll', payrollRoutes);
   app.use('/api/activity-logs', activityLogRoutes);
+  app.use('/api/fcm', fcmRoutes);
 
   app.use((req, res) => res.status(404).json({ message: 'Not found' }));
   app.use(errorHandler);

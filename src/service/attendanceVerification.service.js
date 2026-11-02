@@ -31,6 +31,7 @@ const {
   serializeExtraShift,
   resolveShiftStatus,
 } = require('./attendance.service');
+const fcmNotification = require('./fcmNotification.service');
 const {
   FIXED_SHIFT_KEYS,
   HALF_SHIFT_KEYS,
@@ -582,6 +583,12 @@ async function verifyAttendanceShift({
       date: utcDateToDateKey(attendance.date),
       shift_key: shiftKey,
     },
+  });
+
+  void fcmNotification.notifyEmployeeShiftVerified({
+    employeeProfileId: attendance.employee_id,
+    dateKey: utcDateToDateKey(attendance.date),
+    shiftKey,
   });
 
   return getCompanyAttendanceDetail(company, attendanceId, { shiftKey });

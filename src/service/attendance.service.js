@@ -32,6 +32,7 @@ const {
   utcDateToDateKey,
   isCompanyLocalLockCutoffReached,
 } = require('../utils/timezone.helper');
+const fcmNotification = require('./fcmNotification.service');
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -560,6 +561,13 @@ async function confirmTodayShift({
     targetType: 'Attendance',
     targetId: attendance._id,
     metadata: { date: dateKey, shift_key: shiftKey },
+  });
+
+  void fcmNotification.notifyAdminEmployeeMarkedShift({
+    companyId: company._id,
+    employeeName: employeeProfile.employee_name,
+    dateKey,
+    shiftKey,
   });
 
   return serializeAttendance(attendance, dateKey, timezone);

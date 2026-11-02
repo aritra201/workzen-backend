@@ -14,6 +14,7 @@ const {
   utcDateToDateKey,
 } = require('../utils/timezone.helper');
 const { computeUnlockExpiresAt, isUnlockWindowActive } = require('../helper/unlockWindow.helper');
+const fcmNotification = require('./fcmNotification.service');
 
 const MAX_REASON_LENGTH = 1000;
 const DEFAULT_LIST_LIMIT = 20;
@@ -185,6 +186,12 @@ async function createUnlockRequest({ employeeProfile, attendanceId }) {
   });
 
   await notifyAdminOfUnlockRequest({ company, employeeProfile, dateKey });
+
+  void fcmNotification.notifyAdminUnlockRequested({
+    companyId: company._id,
+    employeeName: employeeProfile.employee_name,
+    dateKey,
+  });
 
   return serializeUnlockRequest(request, timezone);
 }
@@ -424,6 +431,13 @@ async function decideUnlockRequest({ company, adminUserId, attendanceId, status,
     status: nextStatus,
     decisionNote: note,
     unlockExpiresAt,
+  });
+
+  void fcmNotification.notifyEmployeeUnlockDecision({
+    employeeProfileId: employee._id,
+    dateKey,
+    approved: approve,
+    decisionNote: note,
   });
 
   return serializeUnlockRequest(request, company.timezone);
