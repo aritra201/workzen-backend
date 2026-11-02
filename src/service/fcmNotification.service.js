@@ -23,7 +23,8 @@ function buildTemplateVariables({ title, body, path }) {
     value_1: title,
     value_2: body,
     value_3: url,
-    value_4: env.fcm.notificationIconUrl || '',
+    ...(env.fcm.notificationIconUrl ? { value_4: env.fcm.notificationIconUrl } : {}),
+    ...(env.fcm.notificationBannerUrl ? { value_5: env.fcm.notificationBannerUrl } : {}),
   };
 }
 

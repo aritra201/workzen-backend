@@ -90,10 +90,10 @@ module.exports = {
     orgApiSecret: (process.env.FCM_ORG_API_SECRET || process.env.FCM_API_SECRET || '').trim(),
     expireInMinutes: Number(process.env.FCM_EXPIRE_IN_MINUTES) || 1440,
     webOrigin: (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim().replace(/\/$/, ''),
-    notificationIconUrl: (
-      process.env.FCM_NOTIFICATION_ICON_URL ||
-      'https://res.cloudinary.com/bv6ouc0g/image/upload/v1793614103/adaptive-icon.png'
-    ).trim(),
+    /** Small icon URL for FCM templateDetails (optional). Do not use full adaptive/launcher art — LawSikho shows it as a large banner on Android. */
+    notificationIconUrl: (process.env.FCM_NOTIFICATION_ICON_URL || '').trim(),
+    /** Optional hero image; leave unset for text-only notifications. */
+    notificationBannerUrl: (process.env.FCM_NOTIFICATION_BANNER_URL || '').trim(),
   },
 
   required, // exported so server.js can assert secrets exist before boot
